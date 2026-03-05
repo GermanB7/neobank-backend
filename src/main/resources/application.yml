@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/neobank
+    username: neobank
+    password: neobank
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+server:
+  port: 8080

@@ -1,0 +1,17 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: neobank-postgres
+    environment:
+      POSTGRES_DB: neobank
+      POSTGRES_USER: neobank
+      POSTGRES_PASSWORD: neobank
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    container_name: neobank-redis
+    ports:
+      - "6379:6379"
