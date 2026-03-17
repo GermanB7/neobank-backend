@@ -5,12 +5,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neobank.accounts.api.dto.CreateAccountRequest;
 import com.neobank.accounts.domain.AccountType;
 import com.neobank.accounts.repository.AccountRepository;
+import com.neobank.audit.domain.AuditEventEntity;
+import com.neobank.audit.repository.AuditEventRepository;
 import com.neobank.auth.api.dto.LoginRequest;
 import com.neobank.auth.api.dto.RegisterRequest;
 import com.neobank.auth.domain.RoleEntity;
 import com.neobank.auth.domain.UserEntity;
 import com.neobank.auth.repository.RoleRepository;
 import com.neobank.auth.repository.UserRepository;
+import com.neobank.ledger.repository.LedgerEntryRepository;
+import com.neobank.ledger.repository.LedgerTransactionRepository;
+import com.neobank.risk.repository.RiskEvaluationRepository;
+import com.neobank.transfers.repository.TransferRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +61,21 @@ class AccountsIntegrationTest {
     private AccountRepository accountRepository;
 
     @Autowired
+    private AuditEventRepository auditEventRepository;
+
+    @Autowired
+    private TransferRepository transferRepository;
+
+    @Autowired
+    private LedgerTransactionRepository ledgerTransactionRepository;
+
+    @Autowired
+    private LedgerEntryRepository ledgerEntryRepository;
+
+    @Autowired
+    private RiskEvaluationRepository riskEvaluationRepository;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     private String ownerToken;
@@ -69,6 +90,11 @@ class AccountsIntegrationTest {
                 .build();
         objectMapper = new ObjectMapper();
 
+        riskEvaluationRepository.deleteAll();
+        ledgerEntryRepository.deleteAll();
+        ledgerTransactionRepository.deleteAll();
+        transferRepository.deleteAll();
+        auditEventRepository.deleteAll();
         accountRepository.deleteAll();
         userRepository.deleteAll();
         ensureRolesSeeded();
@@ -98,7 +124,7 @@ class AccountsIntegrationTest {
     void createAccountSetsInitialStateAndOwner() throws Exception {
         CreateAccountRequest request = new CreateAccountRequest(AccountType.CHECKING, "USD");
 
-        mockMvc.perform(post("/accounts")
+        MvcResult result = mockMvc.perform(post("/accounts")
                         .header("Authorization", "Bearer " + ownerToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -109,7 +135,17 @@ class AccountsIntegrationTest {
                 .andExpect(jsonPath("$.type").value("CHECKING"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.balance").value(0))
-                .andExpect(jsonPath("$.currency").value("USD"));
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andReturn();
+
+        String accountId = objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText();
+
+        AuditEventEntity accountCreatedEvent = auditEventRepository.findAll().stream()
+                .filter(event -> "ACCOUNT_CREATED".equals(event.getEventType()) && accountId.equals(event.getResourceId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals("SUCCESS", accountCreatedEvent.getOutcome());
     }
 
     @Test

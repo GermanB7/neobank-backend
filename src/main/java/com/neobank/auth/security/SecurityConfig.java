@@ -1,5 +1,6 @@
 package com.neobank.auth.security;
 
+import com.neobank.shared.observability.CorrelationIdFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -29,18 +30,24 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter) throws Exception {
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            JwtAuthFilter jwtAuthFilter,
+            CorrelationIdFilter correlationIdFilter
+    ) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Public endpoints: documentation and health
+                        // Public endpoints: health, documentation and auth.
                         .requestMatchers(
                                 "/actuator/health",
+                                "/actuator/health/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html"
                         ).permitAll()
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // Public authentication endpoints
                         .requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/auth/register", "/auth/login").denyAll()
@@ -52,7 +59,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .httpBasic(Customizer.withDefaults())
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(correlationIdFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(jwtAuthFilter, CorrelationIdFilter.class)
                 .build();
     }
 }

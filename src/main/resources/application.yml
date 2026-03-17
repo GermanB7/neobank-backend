@@ -21,12 +21,34 @@ spring:
 logging:
   level:
     org.flywaydb: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
 
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
 
 security:
   jwt:
     issuer: neobank
     access-token-ttl-seconds: 900
     secret: CHANGE_ME_TO_A_LONG_RANDOM_SECRET_64_CHARACTERS_MINIMUM
+
+risk:
+  policy:
+    max-transfer-amount: 10000.00
+    daily-outgoing-limit: 20000.00
+    velocity-window-minutes: 10
+    velocity-max-transfers: 5
+    new-account-max-age-hours: 24
+    new-account-high-value-threshold: 2500.00

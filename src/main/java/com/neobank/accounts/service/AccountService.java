@@ -7,8 +7,10 @@ import com.neobank.accounts.api.dto.CreateAccountRequest;
 import com.neobank.accounts.domain.AccountEntity;
 import com.neobank.accounts.domain.AccountStatus;
 import com.neobank.accounts.repository.AccountRepository;
+import com.neobank.audit.service.AuditService;
 import com.neobank.auth.domain.UserEntity;
 import com.neobank.auth.repository.UserRepository;
+import com.neobank.shared.metrics.ObservabilityMetrics;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -31,15 +33,25 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
+    private final ObservabilityMetrics observabilityMetrics;
 
-    public AccountService(AccountRepository accountRepository, UserRepository userRepository) {
+    public AccountService(
+            AccountRepository accountRepository,
+            UserRepository userRepository,
+            AuditService auditService,
+            ObservabilityMetrics observabilityMetrics
+    ) {
         this.accountRepository = accountRepository;
         this.userRepository = userRepository;
+        this.auditService = auditService;
+        this.observabilityMetrics = observabilityMetrics;
     }
 
     @Transactional
     public AccountResponse createAccount(CreateAccountRequest request, Authentication authentication) {
-        UUID ownerId = getCurrentUser(authentication).getId();
+        UserEntity currentUser = getCurrentUser(authentication);
+        UUID ownerId = currentUser.getId();
 
         AccountEntity account = new AccountEntity();
         account.setAccountNumber(generateAccountNumber());
@@ -50,6 +62,18 @@ public class AccountService {
         account.setCurrency(normalizeCurrency(request.currency()));
 
         AccountEntity saved = accountRepository.save(account);
+
+        observabilityMetrics.incrementAccountsCreated();
+        auditService.recordEvent(
+                "ACCOUNT_CREATED",
+                ownerId,
+                currentUser.getEmail(),
+                "ACCOUNT",
+                saved.getId().toString(),
+                "SUCCESS",
+                "Account created with type=" + saved.getType() + " currency=" + saved.getCurrency()
+        );
+
         return toAccountResponse(saved);
     }
 

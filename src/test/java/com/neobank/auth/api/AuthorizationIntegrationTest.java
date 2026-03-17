@@ -7,6 +7,12 @@ import com.neobank.auth.domain.RoleEntity;
 import com.neobank.auth.domain.UserEntity;
 import com.neobank.auth.repository.RoleRepository;
 import com.neobank.auth.repository.UserRepository;
+import com.neobank.accounts.repository.AccountRepository;
+import com.neobank.audit.repository.AuditEventRepository;
+import com.neobank.ledger.repository.LedgerEntryRepository;
+import com.neobank.ledger.repository.LedgerTransactionRepository;
+import com.neobank.risk.repository.RiskEvaluationRepository;
+import com.neobank.transfers.repository.TransferRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +60,24 @@ class AuthorizationIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private AuditEventRepository auditEventRepository;
+
+    @Autowired
+    private AccountRepository accountRepository;
+
+    @Autowired
+    private TransferRepository transferRepository;
+
+    @Autowired
+    private LedgerTransactionRepository ledgerTransactionRepository;
+
+    @Autowired
+    private LedgerEntryRepository ledgerEntryRepository;
+
+    @Autowired
+    private RiskEvaluationRepository riskEvaluationRepository;
+
     private String userToken;
     private String adminToken;
 
@@ -64,6 +88,12 @@ class AuthorizationIntegrationTest {
                 .build();
         objectMapper = new ObjectMapper();
 
+        riskEvaluationRepository.deleteAll();
+        ledgerEntryRepository.deleteAll();
+        ledgerTransactionRepository.deleteAll();
+        transferRepository.deleteAll();
+        accountRepository.deleteAll();
+        auditEventRepository.deleteAll();
         userRepository.deleteAll();
         ensureRolesSeeded();
 
@@ -216,5 +246,73 @@ class AuthorizationIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("admin@neobank.com"))
                 .andExpect(jsonPath("$.roles[0]").value("ROLE_ADMIN"));
+    }
+
+    // ==================== OBSERVABILITY ACCESS CONTROL ====================
+
+    @Test
+    void testActuatorHealthIsPublic() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testActuatorMetricsRequiresAdminRole() throws Exception {
+        mockMvc.perform(get("/actuator/metrics"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/metrics")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/actuator/metrics")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testAuditEndpointRequiresAdminRole() throws Exception {
+        mockMvc.perform(get("/audit/events")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/audit/events")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testCorrelationIdHeaderIsGeneratedAndPropagated() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(header().exists("X-Correlation-Id"));
+
+        mockMvc.perform(get("/auth/me")
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("X-Correlation-Id", "corr-test-123"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Correlation-Id", "corr-test-123"));
+    }
+
+    @Test
+    void testLoginSuccessAndFailureGenerateAuditEvents() throws Exception {
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("user@neobank.com", "password123"))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("user@neobank.com", "wrong-password"))))
+                .andExpect(status().isUnauthorized());
+
+        boolean hasSuccess = auditEventRepository.findAll().stream()
+                .anyMatch(event -> "LOGIN_SUCCESS".equals(event.getEventType()) && "SUCCESS".equals(event.getOutcome()));
+        boolean hasFailure = auditEventRepository.findAll().stream()
+                .anyMatch(event -> "LOGIN_FAILURE".equals(event.getEventType()) && "FAILURE".equals(event.getOutcome()));
+
+        org.junit.jupiter.api.Assertions.assertTrue(hasSuccess);
+        org.junit.jupiter.api.Assertions.assertTrue(hasFailure);
     }
 }

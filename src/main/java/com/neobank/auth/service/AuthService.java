@@ -1,5 +1,6 @@
 package com.neobank.auth.service;
 
+import com.neobank.audit.service.AuditService;
 import com.neobank.auth.api.dto.AuthResponse;
 import com.neobank.auth.api.dto.LoginRequest;
 import com.neobank.auth.api.dto.RegisterRequest;
@@ -9,9 +10,11 @@ import com.neobank.auth.domain.UserEntity;
 import com.neobank.auth.repository.RoleRepository;
 import com.neobank.auth.repository.UserRepository;
 import com.neobank.auth.security.JwtService;
+import com.neobank.shared.metrics.ObservabilityMetrics;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,19 +33,25 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
+    private final AuditService auditService;
+    private final ObservabilityMetrics observabilityMetrics;
 
     public AuthService(
             UserRepository userRepository,
             RoleRepository roleRepository,
             PasswordEncoder passwordEncoder,
             AuthenticationManager authenticationManager,
-            JwtService jwtService
+            JwtService jwtService,
+            AuditService auditService,
+            ObservabilityMetrics observabilityMetrics
     ) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtService = jwtService;
+        this.auditService = auditService;
+        this.observabilityMetrics = observabilityMetrics;
     }
 
     @Transactional
@@ -64,6 +73,16 @@ public class AuthService {
 
         userRepository.save(user);
 
+        auditService.recordEvent(
+                "USER_REGISTERED",
+                user.getId(),
+                user.getEmail(),
+                "USER",
+                user.getId().toString(),
+                "SUCCESS",
+                "User registered"
+        );
+
         String token = jwtService.generateToken(email);
         return new AuthResponse(token, TOKEN_TYPE, jwtService.getExpirationSeconds());
     }
@@ -71,8 +90,34 @@ public class AuthService {
     public AuthResponse login(LoginRequest req) {
         String email = req.email().trim().toLowerCase(Locale.ROOT);
 
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(email, req.password())
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(email, req.password())
+            );
+        } catch (AuthenticationException ex) {
+            observabilityMetrics.incrementLoginFailure();
+            auditService.recordEvent(
+                    "LOGIN_FAILURE",
+                    null,
+                    email,
+                    "AUTH",
+                    null,
+                    "FAILURE",
+                    "Authentication failed"
+            );
+            throw ex;
+        }
+
+        observabilityMetrics.incrementLoginSuccess();
+        UserEntity user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        auditService.recordEvent(
+                "LOGIN_SUCCESS",
+                user != null ? user.getId() : null,
+                email,
+                "AUTH",
+                null,
+                "SUCCESS",
+                "Authentication succeeded"
         );
 
         String token = jwtService.generateToken(email);

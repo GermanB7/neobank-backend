@@ -6,7 +6,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
     open-in-view: false
 
   flyway:
@@ -22,12 +22,34 @@ logging:
   level:
     org.flywaydb: INFO
     org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
 
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
 
 security:
   jwt:
     issuer: neobank
     access-token-ttl-seconds: 900
     secret: TEST_SECRET_KEY_MINIMUM_64_CHARACTERS_LONG_0123456789ABCDEF
+
+risk:
+  policy:
+    max-transfer-amount: 1000.00
+    daily-outgoing-limit: 3000.00
+    velocity-window-minutes: 10
+    velocity-max-transfers: 2
+    new-account-max-age-hours: 24
+    new-account-high-value-threshold: 700.00
