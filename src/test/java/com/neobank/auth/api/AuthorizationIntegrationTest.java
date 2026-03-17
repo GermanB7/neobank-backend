@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -20,6 +21,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import java.util.Set;
 
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -33,12 +35,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * - Redis (if enabled in config)
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
 class AuthorizationIntegrationTest {
 
     @Autowired
     private WebApplicationContext webApplicationContext;
 
-    @Autowired
+    private MockMvc mockMvc;
+
     private ObjectMapper objectMapper;
 
     @Autowired
@@ -50,15 +54,18 @@ class AuthorizationIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    private MockMvc mockMvc;
     private String userToken;
     private String adminToken;
 
     @BeforeEach
     void setUp() throws Exception {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                .apply(springSecurity())
+                .build();
+        objectMapper = new ObjectMapper();
 
         userRepository.deleteAll();
+        ensureRolesSeeded();
 
         // Register and get token for a regular user
         RegisterRequest userRequest = new RegisterRequest("user@neobank.com", "password123");
@@ -92,6 +99,20 @@ class AuthorizationIntegrationTest {
 
         String adminResponse = adminLoginResult.getResponse().getContentAsString();
         adminToken = objectMapper.readTree(adminResponse).get("accessToken").asText();
+    }
+
+    private void ensureRolesSeeded() {
+        if (roleRepository.findByName("ROLE_USER").isEmpty()) {
+            RoleEntity roleUser = new RoleEntity();
+            roleUser.setName("ROLE_USER");
+            roleRepository.save(roleUser);
+        }
+
+        if (roleRepository.findByName("ROLE_ADMIN").isEmpty()) {
+            RoleEntity roleAdmin = new RoleEntity();
+            roleAdmin.setName("ROLE_ADMIN");
+            roleRepository.save(roleAdmin);
+        }
     }
 
     // ==================== PUBLIC ENDPOINTS ====================
@@ -197,6 +218,3 @@ class AuthorizationIntegrationTest {
                 .andExpect(jsonPath("$.roles[0]").value("ROLE_ADMIN"));
     }
 }
-
-
-

@@ -31,4 +31,3 @@ security:
     issuer: neobank
     access-token-ttl-seconds: 900
     secret: TEST_SECRET_KEY_MINIMUM_64_CHARACTERS_LONG_0123456789ABCDEF
-
