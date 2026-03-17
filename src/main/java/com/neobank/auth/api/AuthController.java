@@ -3,10 +3,13 @@ package com.neobank.auth.api;
 import com.neobank.auth.api.dto.AuthResponse;
 import com.neobank.auth.api.dto.LoginRequest;
 import com.neobank.auth.api.dto.RegisterRequest;
+import com.neobank.auth.api.dto.UserProfileResponse;
 import com.neobank.auth.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,6 +40,19 @@ public class AuthController {
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Returns the authenticated user's profile information.
+     * Requires a valid JWT token.
+     *
+     * @param authentication injected by Spring Security (requires authentication)
+     * @return user profile with ID, email, roles, and enabled status
+     */
+    @GetMapping("/me")
+    public ResponseEntity<UserProfileResponse> getProfile(Authentication authentication) {
+        UserProfileResponse profile = authService.getUserProfile(authentication);
+        return ResponseEntity.ok(profile);
     }
 }
 

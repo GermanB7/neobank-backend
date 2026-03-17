@@ -1,0 +1,202 @@
+package com.neobank.auth.api;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.neobank.auth.api.dto.LoginRequest;
+import com.neobank.auth.api.dto.RegisterRequest;
+import com.neobank.auth.domain.RoleEntity;
+import com.neobank.auth.domain.UserEntity;
+import com.neobank.auth.repository.RoleRepository;
+import com.neobank.auth.repository.UserRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.util.Set;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+/**
+ * Integration tests for authorization behavior.
+ * Tests verify correct 401/403 responses and role-based access control.
+ *
+ * These tests require:
+ * - PostgreSQL database running
+ * - Flyway migrations applied
+ * - Redis (if enabled in config)
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class AuthorizationIntegrationTest {
+
+    @Autowired
+    private WebApplicationContext webApplicationContext;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private RoleRepository roleRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private MockMvc mockMvc;
+    private String userToken;
+    private String adminToken;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+
+        userRepository.deleteAll();
+
+        // Register and get token for a regular user
+        RegisterRequest userRequest = new RegisterRequest("user@neobank.com", "password123");
+        MvcResult userRegisterResult = mockMvc.perform(post("/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(userRequest)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String userResponse = userRegisterResult.getResponse().getContentAsString();
+        userToken = objectMapper.readTree(userResponse).get("accessToken").asText();
+
+        // Create admin user manually
+        RoleEntity adminRole = roleRepository.findByName("ROLE_ADMIN")
+                .orElseThrow(() -> new IllegalStateException("ROLE_ADMIN not found"));
+
+        UserEntity adminUser = new UserEntity();
+        adminUser.setEmail("admin@neobank.com");
+        adminUser.setPasswordHash(passwordEncoder.encode("adminpass123"));
+        adminUser.setEnabled(true);
+        adminUser.setRoles(Set.of(adminRole));
+        userRepository.save(adminUser);
+
+        // Login as admin
+        LoginRequest adminLoginRequest = new LoginRequest("admin@neobank.com", "adminpass123");
+        MvcResult adminLoginResult = mockMvc.perform(post("/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(adminLoginRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String adminResponse = adminLoginResult.getResponse().getContentAsString();
+        adminToken = objectMapper.readTree(adminResponse).get("accessToken").asText();
+    }
+
+    // ==================== PUBLIC ENDPOINTS ====================
+
+    @Test
+    void testPublicEndpointRegisterWithoutToken() throws Exception {
+        RegisterRequest request = new RegisterRequest("newuser@neobank.com", "password123");
+        mockMvc.perform(post("/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void testPublicEndpointLoginWithoutToken() throws Exception {
+        LoginRequest request = new LoginRequest("user@neobank.com", "password123");
+        mockMvc.perform(post("/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testPublicDocumentationEndpointsWithoutToken() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk());
+    }
+
+    // ==================== AUTHENTICATED ENDPOINTS ====================
+
+    @Test
+    void testAuthenticatedEndpointGetMeWithoutToken_Returns401() throws Exception {
+        mockMvc.perform(get("/auth/me"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testAuthenticatedEndpointGetMeWithInvalidToken_Returns401() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                .header("Authorization", "Bearer invalid_token_xyz"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testAuthenticatedEndpointGetMeWithValidToken_Returns200() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("user@neobank.com"))
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"));
+    }
+
+    @Test
+    void testAuthenticatedEndpointGetMeReturnsUserRoles() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").isNotEmpty())
+                .andExpect(jsonPath("$.email").value("user@neobank.com"))
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.roles.length()").value(1));
+    }
+
+    // ==================== ADMIN-ONLY ENDPOINTS ====================
+
+    @Test
+    void testAdminEndpointWithoutToken_Returns401() throws Exception {
+        mockMvc.perform(get("/admin/health"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testAdminEndpointWithUserToken_Returns403() throws Exception {
+        mockMvc.perform(get("/admin/health")
+                .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void testAdminEndpointWithAdminToken_Returns200() throws Exception {
+        mockMvc.perform(get("/admin/health")
+                .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("Admin panel is operational"));
+    }
+
+    @Test
+    void testAdminEndpointWithInvalidToken_Returns401() throws Exception {
+        mockMvc.perform(get("/admin/health")
+                .header("Authorization", "Bearer invalid_token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ==================== ROLE VERIFICATION ====================
+
+    @Test
+    void testAdminUserHasAdminRoleInProfile() throws Exception {
+        mockMvc.perform(get("/auth/me")
+                .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("admin@neobank.com"))
+                .andExpect(jsonPath("$.roles[0]").value("ROLE_ADMIN"));
+    }
+}
+
+
+
