@@ -3,8 +3,10 @@ package com.neobank.shared.infrastructure;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neobank.shared.domain.DomainEvent;
 import com.neobank.shared.domain.OutboxStatus;
+import com.neobank.shared.infrastructure.kafka.KafkaIntegrationEventDispatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Processor for durable outbox event publication.
@@ -50,6 +53,7 @@ public class OutboxEventProcessor {
     private final OutboxEventRepository outboxEventRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final ObjectMapper objectMapper;
+    private final Optional<KafkaIntegrationEventDispatcher> kafkaDispatcher;
 
     @Value("${outbox.processor.batch-size:100}")
     private int batchSize;
@@ -63,11 +67,13 @@ public class OutboxEventProcessor {
     public OutboxEventProcessor(
             OutboxEventRepository outboxEventRepository,
             ApplicationEventPublisher applicationEventPublisher,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            @Autowired(required = false) KafkaIntegrationEventDispatcher kafkaDispatcher
     ) {
         this.outboxEventRepository = outboxEventRepository;
         this.applicationEventPublisher = applicationEventPublisher;
         this.objectMapper = objectMapper;
+        this.kafkaDispatcher = Optional.ofNullable(kafkaDispatcher);
     }
 
     /**
@@ -138,9 +144,26 @@ public class OutboxEventProcessor {
                     maxAttempts
             );
 
-            // Deserialize and publish event
+            // Deserialize and publish event to Spring ApplicationEventPublisher
             DomainEvent domainEvent = deserializeEvent(outboxEvent);
             applicationEventPublisher.publishEvent(domainEvent);
+
+            // Dispatch to Kafka for asynchronous processing (Sprint 15)
+            // This is a fire-and-forget operation - failures are logged but don't fail the processor
+            if (kafkaDispatcher.isPresent()) {
+                try {
+                    kafkaDispatcher.get().dispatch(outboxEvent);
+                } catch (Exception ex) {
+                    log.warn(
+                            "Kafka dispatch failed for outbox event: id={} type={} error={}",
+                            outboxEvent.getId(),
+                            outboxEvent.getEventType(),
+                            ex.getMessage()
+                    );
+                    // Continue - Kafka failure should not prevent marking as PROCESSED
+                    // The event is safely in the outbox table for future retry
+                }
+            }
 
             // Mark as successfully processed
             outboxEventRepository.markAsProcessed(outboxEvent.getId(), Instant.now());
