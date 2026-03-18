@@ -17,6 +17,8 @@ public class ObservabilityMetrics {
     private final Counter riskAllow;
     private final Counter riskReject;
     private final Counter ledgerRecorded;
+    private final Counter reconciliationRuns;
+    private final Counter reconciliationDiscrepancies;
 
     private final MeterRegistry meterRegistry;
 
@@ -31,6 +33,8 @@ public class ObservabilityMetrics {
         this.riskAllow = Counter.builder("neobank.risk.allow").register(meterRegistry);
         this.riskReject = Counter.builder("neobank.risk.reject").register(meterRegistry);
         this.ledgerRecorded = Counter.builder("neobank.ledger.recorded").register(meterRegistry);
+        this.reconciliationRuns = Counter.builder("neobank.reconciliation.runs").register(meterRegistry);
+        this.reconciliationDiscrepancies = Counter.builder("neobank.reconciliation.discrepancies").register(meterRegistry);
     }
 
     public void incrementLoginSuccess() {
@@ -69,6 +73,16 @@ public class ObservabilityMetrics {
         ledgerRecorded.increment();
     }
 
+    public void incrementReconciliationRuns() {
+        reconciliationRuns.increment();
+    }
+
+    public void incrementReconciliationDiscrepancies(int count) {
+        if (count > 0) {
+            reconciliationDiscrepancies.increment(count);
+        }
+    }
+
     public Timer.Sample startTimer() {
         return Timer.start(meterRegistry);
     }
@@ -85,4 +99,3 @@ public class ObservabilityMetrics {
         sample.stop(Timer.builder("neobank.ledger.recording").register(meterRegistry));
     }
 }
-

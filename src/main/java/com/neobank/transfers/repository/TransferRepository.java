@@ -28,6 +28,23 @@ public interface TransferRepository extends JpaRepository<TransferEntity, UUID> 
 
     Optional<TransferEntity> findByOriginalTransferIdAndKind(UUID originalTransferId, TransferKind kind);
 
+    List<TransferEntity> findByStatus(TransferStatus status);
+
+    List<TransferEntity> findByStatusAndKind(TransferStatus status, TransferKind kind);
+
+    List<TransferEntity> findByKind(TransferKind kind);
+
+    @Query("""
+            select t.originalTransferId as originalTransferId,
+                   count(t.id) as reversalCount
+            from TransferEntity t
+            where t.kind = :kind
+              and t.originalTransferId is not null
+            group by t.originalTransferId
+            having count(t.id) > 1
+            """)
+    List<DuplicateReversalProjection> findDuplicateReversalOriginals(TransferKind kind);
+
     @Query("""
             select coalesce(sum(t.amount), 0)
             from TransferEntity t
@@ -61,4 +78,10 @@ public interface TransferRepository extends JpaRepository<TransferEntity, UUID> 
             TransferKind kind,
             Instant processedAt
     );
+
+    interface DuplicateReversalProjection {
+        UUID getOriginalTransferId();
+
+        long getReversalCount();
+    }
 }

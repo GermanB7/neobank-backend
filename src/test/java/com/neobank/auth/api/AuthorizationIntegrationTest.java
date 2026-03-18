@@ -339,4 +339,27 @@ class AuthorizationIntegrationTest {
                         .content(objectMapper.writeValueAsString(new ReverseTransferRequest("auth test"))))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void testReconciliationEndpointsRequireAdminRole() throws Exception {
+        mockMvc.perform(post("/reconciliation/run"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/reconciliation/run")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/reconciliation/run")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        mockMvc.perform(get("/reconciliation/reports")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/reconciliation/reports")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+    }
 }
