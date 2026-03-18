@@ -6,10 +6,12 @@ import com.neobank.accounts.api.dto.BalanceResponse;
 import com.neobank.accounts.api.dto.CreateAccountRequest;
 import com.neobank.accounts.domain.AccountEntity;
 import com.neobank.accounts.domain.AccountStatus;
+import com.neobank.accounts.domain.events.AccountCreatedEvent;
 import com.neobank.accounts.repository.AccountRepository;
 import com.neobank.audit.service.AuditService;
 import com.neobank.auth.domain.UserEntity;
 import com.neobank.auth.repository.UserRepository;
+import com.neobank.shared.domain.DomainEventPublisher;
 import com.neobank.shared.metrics.ObservabilityMetrics;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
@@ -35,17 +37,20 @@ public class AccountService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final ObservabilityMetrics observabilityMetrics;
+    private final DomainEventPublisher domainEventPublisher;
 
     public AccountService(
             AccountRepository accountRepository,
             UserRepository userRepository,
             AuditService auditService,
-            ObservabilityMetrics observabilityMetrics
+            ObservabilityMetrics observabilityMetrics,
+            DomainEventPublisher domainEventPublisher
     ) {
         this.accountRepository = accountRepository;
         this.userRepository = userRepository;
         this.auditService = auditService;
         this.observabilityMetrics = observabilityMetrics;
+        this.domainEventPublisher = domainEventPublisher;
     }
 
     @Transactional
@@ -64,14 +69,16 @@ public class AccountService {
         AccountEntity saved = accountRepository.save(account);
 
         observabilityMetrics.incrementAccountsCreated();
-        auditService.recordEvent(
-                "ACCOUNT_CREATED",
-                ownerId,
-                currentUser.getEmail(),
-                "ACCOUNT",
-                saved.getId().toString(),
-                "SUCCESS",
-                "Account created with type=" + saved.getType() + " currency=" + saved.getCurrency()
+
+        // Publish event for audit and other side effects
+        domainEventPublisher.publishEvent(
+                new AccountCreatedEvent(
+                        saved.getId(),
+                        saved.getAccountNumber(),
+                        ownerId,
+                        saved.getType(),
+                        saved.getCurrency()
+                )
         );
 
         return toAccountResponse(saved);

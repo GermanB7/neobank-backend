@@ -7,9 +7,11 @@ import com.neobank.auth.api.dto.RegisterRequest;
 import com.neobank.auth.api.dto.UserProfileResponse;
 import com.neobank.auth.domain.RoleEntity;
 import com.neobank.auth.domain.UserEntity;
+import com.neobank.auth.domain.events.UserRegisteredEvent;
 import com.neobank.auth.repository.RoleRepository;
 import com.neobank.auth.repository.UserRepository;
 import com.neobank.auth.security.JwtService;
+import com.neobank.shared.domain.DomainEventPublisher;
 import com.neobank.shared.metrics.ObservabilityMetrics;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -38,6 +40,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuditService auditService;
     private final ObservabilityMetrics observabilityMetrics;
+    private final DomainEventPublisher domainEventPublisher;
 
     public AuthService(
             UserRepository userRepository,
@@ -46,7 +49,8 @@ public class AuthService {
             AuthenticationManager authenticationManager,
             JwtService jwtService,
             AuditService auditService,
-            ObservabilityMetrics observabilityMetrics
+            ObservabilityMetrics observabilityMetrics,
+            DomainEventPublisher domainEventPublisher
     ) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
@@ -55,6 +59,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.auditService = auditService;
         this.observabilityMetrics = observabilityMetrics;
+        this.domainEventPublisher = domainEventPublisher;
     }
 
     @Transactional
@@ -77,14 +82,9 @@ public class AuthService {
 
         userRepository.save(user);
 
-        auditService.recordEvent(
-                "USER_REGISTERED",
-                user.getId(),
-                user.getEmail(),
-                "USER",
-                user.getId().toString(),
-                "SUCCESS",
-                "User registered"
+        // Publish event for audit and other side effects
+        domainEventPublisher.publishEvent(
+                new UserRegisteredEvent(user.getId(), user.getEmail())
         );
 
         String token = jwtService.generateToken(email);

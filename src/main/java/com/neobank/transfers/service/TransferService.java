@@ -11,12 +11,15 @@ import com.neobank.risk.domain.RiskDecision;
 import com.neobank.risk.domain.RiskEvaluationEntity;
 import com.neobank.risk.service.RiskEvaluationService;
 import com.neobank.risk.service.RiskPolicyViolationException;
+import com.neobank.shared.domain.DomainEventPublisher;
 import com.neobank.shared.metrics.ObservabilityMetrics;
 import com.neobank.transfers.api.dto.CreateTransferRequest;
 import com.neobank.transfers.api.dto.TransferResponse;
 import com.neobank.transfers.api.dto.TransferSummaryResponse;
 import com.neobank.transfers.domain.TransferEntity;
 import com.neobank.transfers.domain.TransferStatus;
+import com.neobank.transfers.domain.events.TransferCompletedEvent;
+import com.neobank.transfers.domain.events.TransferRejectedByRiskEvent;
 import com.neobank.transfers.repository.TransferRepository;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
@@ -49,6 +52,7 @@ public class TransferService {
     private final RiskEvaluationService riskEvaluationService;
     private final AuditService auditService;
     private final ObservabilityMetrics observabilityMetrics;
+    private final DomainEventPublisher domainEventPublisher;
 
     public TransferService(
             AccountRepository accountRepository,
@@ -57,7 +61,8 @@ public class TransferService {
             LedgerService ledgerService,
             RiskEvaluationService riskEvaluationService,
             AuditService auditService,
-            ObservabilityMetrics observabilityMetrics
+            ObservabilityMetrics observabilityMetrics,
+            DomainEventPublisher domainEventPublisher
     ) {
         this.accountRepository = accountRepository;
         this.transferRepository = transferRepository;
@@ -66,6 +71,7 @@ public class TransferService {
         this.riskEvaluationService = riskEvaluationService;
         this.auditService = auditService;
         this.observabilityMetrics = observabilityMetrics;
+        this.domainEventPublisher = domainEventPublisher;
     }
 
     @Transactional(noRollbackFor = RiskPolicyViolationException.class)
@@ -136,15 +142,19 @@ public class TransferService {
 
             if (evaluation.getDecision() == RiskDecision.REJECT) {
                 observabilityMetrics.incrementTransfersRejected();
-                auditService.recordEvent(
-                        "TRANSFER_REJECTED_BY_RISK",
-                        initiatedByUserId,
-                        currentUser.getEmail(),
-                        "RISK_EVALUATION",
-                        evaluation.getId().toString(),
-                        "REJECTED",
-                        evaluation.getReason()
+
+                // Publish event for audit and other side effects
+                domainEventPublisher.publishEvent(
+                        new TransferRejectedByRiskEvent(
+                                evaluation.getId(),
+                                sourceAccount.getId(),
+                                targetAccount.getId(),
+                                initiatedByUserId,
+                                normalizedAmount,
+                                evaluation.getReason()
+                        )
                 );
+
                 throw new RiskPolicyViolationException(evaluation.getReason());
             }
 
@@ -188,14 +198,18 @@ public class TransferService {
             observabilityMetrics.recordLedgerRecording(ledgerTimer);
 
             observabilityMetrics.incrementTransfersCompleted();
-            auditService.recordEvent(
-                    "TRANSFER_COMPLETED",
-                    initiatedByUserId,
-                    currentUser.getEmail(),
-                    "TRANSFER",
-                    completed.getId().toString(),
-                    "SUCCESS",
-                    "Transfer completed"
+
+            // Publish event for audit and other side effects
+            domainEventPublisher.publishEvent(
+                    new TransferCompletedEvent(
+                            completed.getId(),
+                            completed.getSourceAccountId(),
+                            completed.getTargetAccountId(),
+                            initiatedByUserId,
+                            completed.getAmount(),
+                            completed.getCurrency(),
+                            completed.getProcessedAt()
+                    )
             );
 
             return toTransferResponse(completed);
