@@ -15,7 +15,7 @@ import com.neobank.reconciliation.domain.ReconciliationReportEntity;
 import com.neobank.reconciliation.domain.ReconciliationStatus;
 import com.neobank.reconciliation.repository.ReconciliationDiscrepancyRepository;
 import com.neobank.reconciliation.repository.ReconciliationReportRepository;
-import com.neobank.shared.metrics.ObservabilityMetrics;
+import com.neobank.observability.metrics.ObservabilityMetrics;
 import com.neobank.transfers.domain.TransferEntity;
 import com.neobank.transfers.domain.TransferKind;
 import com.neobank.transfers.domain.TransferStatus;

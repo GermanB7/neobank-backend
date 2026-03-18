@@ -5,7 +5,7 @@ import com.neobank.risk.domain.RiskDecision;
 import com.neobank.risk.domain.RiskEvaluationEntity;
 import com.neobank.risk.domain.RiskRuleType;
 import com.neobank.risk.repository.RiskEvaluationRepository;
-import com.neobank.shared.metrics.ObservabilityMetrics;
+import com.neobank.observability.metrics.ObservabilityMetrics;
 import com.neobank.transfers.domain.TransferKind;
 import com.neobank.transfers.domain.TransferStatus;
 import com.neobank.transfers.repository.TransferRepository;

@@ -1,6 +1,6 @@
 package com.neobank.shared.api;
 
-import com.neobank.shared.observability.CorrelationIdFilter;
+import com.neobank.observability.web.CorrelationIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -8,7 +8,7 @@ import com.neobank.auth.api.dto.RegisterRequest;
 import com.neobank.auth.api.dto.SessionResponse;
 import com.neobank.auth.api.dto.UserProfileResponse;
 import com.neobank.auth.service.AuthService;
-import com.neobank.shared.ratelimit.RateLimit;
+import com.neobank.ratelimit.annotation.RateLimit;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;

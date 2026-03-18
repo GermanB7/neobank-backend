@@ -4,13 +4,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neobank.analytics.domain.AnalyticsEventEntity;
 import com.neobank.analytics.domain.TransferAnalyticsStatus;
 import com.neobank.analytics.repository.AnalyticsEventRepository;
-import com.neobank.shared.infrastructure.kafka.IdempotencyService;
+import com.neobank.messaging.kafka.idempotency.IdempotencyService;
+import com.neobank.messaging.kafka.idempotency.ProcessedEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -24,8 +27,19 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests that the consumer correctly processes Kafka events and stores analytics data.
  */
 @SpringBootTest
+@EmbeddedKafka(partitions = 1, topics = {
+        "neobank.transfer.completed",
+        "neobank.transfer.rejected",
+        "neobank.transfer.reversed"
+})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 @ActiveProfiles("test")
+@TestPropertySource(properties = {
+        "neobank.kafka.enabled=true",
+        "spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}",
+        "spring.kafka.consumer.enable-auto-commit=false",
+        "spring.kafka.listener.auto-startup=false"
+})
 class AnalyticsEventConsumerTest {
 
     @Autowired
@@ -38,6 +52,9 @@ class AnalyticsEventConsumerTest {
     private IdempotencyService idempotencyService;
 
     @Autowired
+    private ProcessedEventRepository processedEventRepository;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
     private UUID testEventId;
@@ -45,6 +62,8 @@ class AnalyticsEventConsumerTest {
 
     @BeforeEach
     void setUp() {
+        analyticsEventRepository.deleteAll();
+        processedEventRepository.deleteAll();
         testEventId = UUID.randomUUID();
         testTransferId = UUID.randomUUID();
     }
@@ -200,4 +219,3 @@ class AnalyticsEventConsumerTest {
         assertEquals(0, analyticsEventRepository.count());
     }
 }
-

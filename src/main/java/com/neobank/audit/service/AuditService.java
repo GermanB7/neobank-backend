@@ -3,7 +3,7 @@ package com.neobank.audit.service;
 import com.neobank.audit.api.dto.AuditEventResponse;
 import com.neobank.audit.domain.AuditEventEntity;
 import com.neobank.audit.repository.AuditEventRepository;
-import com.neobank.shared.observability.CorrelationIdFilter;
+import com.neobank.observability.web.CorrelationIdFilter;
 import org.slf4j.MDC;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;

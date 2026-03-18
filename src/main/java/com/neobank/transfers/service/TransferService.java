@@ -12,7 +12,7 @@ import com.neobank.risk.domain.RiskEvaluationEntity;
 import com.neobank.risk.service.RiskEvaluationService;
 import com.neobank.risk.service.RiskPolicyViolationException;
 import com.neobank.shared.domain.DomainEventPublisher;
-import com.neobank.shared.metrics.ObservabilityMetrics;
+import com.neobank.observability.metrics.ObservabilityMetrics;
 import com.neobank.transfers.api.dto.CreateTransferRequest;
 import com.neobank.transfers.api.dto.TransferResponse;
 import com.neobank.transfers.api.dto.TransferSummaryResponse;

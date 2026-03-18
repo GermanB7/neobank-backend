@@ -1,6 +1,6 @@
 package com.neobank.auth.security;
 
-import com.neobank.shared.observability.CorrelationIdFilter;
+import com.neobank.observability.web.CorrelationIdFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;

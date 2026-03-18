@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neobank.analytics.domain.AnalyticsEventEntity;
 import com.neobank.analytics.domain.TransferAnalyticsStatus;
 import com.neobank.analytics.repository.AnalyticsEventRepository;
-import com.neobank.shared.infrastructure.kafka.IdempotencyService;
+import com.neobank.messaging.kafka.idempotency.IdempotencyService;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

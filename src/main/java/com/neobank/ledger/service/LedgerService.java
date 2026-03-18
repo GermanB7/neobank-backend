@@ -13,7 +13,7 @@ import com.neobank.ledger.domain.LedgerTransactionEntity;
 import com.neobank.ledger.domain.LedgerTransactionType;
 import com.neobank.ledger.repository.LedgerEntryRepository;
 import com.neobank.ledger.repository.LedgerTransactionRepository;
-import com.neobank.shared.metrics.ObservabilityMetrics;
+import com.neobank.observability.metrics.ObservabilityMetrics;
 import com.neobank.transfers.domain.TransferEntity;
 import com.neobank.transfers.domain.TransferStatus;
 import org.springframework.dao.DataIntegrityViolationException;

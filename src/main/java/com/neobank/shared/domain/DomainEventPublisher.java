@@ -32,4 +32,3 @@ public interface DomainEventPublisher {
      */
     void publishEvent(DomainEvent event);
 }
-

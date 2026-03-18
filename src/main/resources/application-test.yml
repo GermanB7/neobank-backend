@@ -64,6 +64,9 @@ risk:
     new-account-max-age-hours: 24
     new-account-high-value-threshold: 700.00
 
+outbox:
+  enabled: false
+
 neobank:
   ratelimit:
     enabled: false  # Disable rate limiting in tests to avoid interference

@@ -47,5 +47,4 @@ CREATE INDEX IF NOT EXISTS idx_analytics_user_id
 
 -- Composite index for daily reports
 CREATE INDEX IF NOT EXISTS idx_analytics_event_date
-    ON analytics_events(event_type, DATE(received_at));
-
+    ON analytics_events(event_type, received_at);

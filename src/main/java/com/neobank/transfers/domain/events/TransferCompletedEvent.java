@@ -1,5 +1,8 @@
 package com.neobank.transfers.domain.events;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.neobank.shared.domain.DomainEvent;
 
 import java.math.BigDecimal;
@@ -22,6 +25,7 @@ import java.util.UUID;
  * committed to the database. Listeners should not need to handle failures of the
  * core transaction.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TransferCompletedEvent extends DomainEvent {
 
     private static final String EVENT_TYPE = "TransferCompleted";
@@ -34,14 +38,15 @@ public class TransferCompletedEvent extends DomainEvent {
     private final String currency;
     private final Instant processedAt;
 
+    @JsonCreator
     public TransferCompletedEvent(
-            UUID transferId,
-            UUID sourceAccountId,
-            UUID targetAccountId,
-            UUID initiatedByUserId,
-            BigDecimal amount,
-            String currency,
-            Instant processedAt
+            @JsonProperty("transferId") UUID transferId,
+            @JsonProperty("sourceAccountId") UUID sourceAccountId,
+            @JsonProperty("targetAccountId") UUID targetAccountId,
+            @JsonProperty("initiatedByUserId") UUID initiatedByUserId,
+            @JsonProperty("amount") BigDecimal amount,
+            @JsonProperty("currency") String currency,
+            @JsonProperty("processedAt") Instant processedAt
     ) {
         super();
         this.transferId = transferId;
@@ -99,4 +104,3 @@ public class TransferCompletedEvent extends DomainEvent {
                 '}';
     }
 }
-

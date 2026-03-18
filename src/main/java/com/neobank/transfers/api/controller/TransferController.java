@@ -1,7 +1,7 @@
 package com.neobank.transfers.api.controller;
 
 import com.neobank.risk.service.RiskPolicyViolationException;
-import com.neobank.shared.ratelimit.RateLimit;
+import com.neobank.ratelimit.annotation.RateLimit;
 import com.neobank.transfers.api.dto.CreateTransferRequest;
 import com.neobank.transfers.api.dto.ReversalResponse;
 import com.neobank.transfers.api.dto.ReverseTransferRequest;

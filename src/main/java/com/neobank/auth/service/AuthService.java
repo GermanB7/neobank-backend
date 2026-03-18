@@ -16,7 +16,7 @@ import com.neobank.auth.repository.RoleRepository;
 import com.neobank.auth.repository.UserRepository;
 import com.neobank.auth.security.JwtService;
 import com.neobank.shared.domain.DomainEventPublisher;
-import com.neobank.shared.metrics.ObservabilityMetrics;
+import com.neobank.observability.metrics.ObservabilityMetrics;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.authentication.AuthenticationManager;

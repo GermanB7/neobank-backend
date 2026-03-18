@@ -12,7 +12,7 @@ import com.neobank.audit.service.AuditService;
 import com.neobank.auth.domain.UserEntity;
 import com.neobank.auth.repository.UserRepository;
 import com.neobank.shared.domain.DomainEventPublisher;
-import com.neobank.shared.metrics.ObservabilityMetrics;
+import com.neobank.observability.metrics.ObservabilityMetrics;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;

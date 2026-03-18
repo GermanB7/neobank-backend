@@ -248,4 +248,3 @@ class DomainEventPublishingTest {
         assertEquals(originalOccurredAt, event.getOccurredAt());
     }
 }
-
