@@ -6,6 +6,7 @@ import com.neobank.risk.domain.RiskEvaluationEntity;
 import com.neobank.risk.domain.RiskRuleType;
 import com.neobank.risk.repository.RiskEvaluationRepository;
 import com.neobank.shared.metrics.ObservabilityMetrics;
+import com.neobank.transfers.domain.TransferKind;
 import com.neobank.transfers.domain.TransferStatus;
 import com.neobank.transfers.repository.TransferRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -76,9 +77,12 @@ public class RiskEvaluationService {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         Instant dayStart = today.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant nextDayStart = today.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
-        BigDecimal todayOutgoing = transferRepository.sumOutgoingAmountBySourceAndStatusBetween(
+
+        BigDecimal todayOutgoing = transferRepository.sumOutgoingAmountBySourceAndTerminalStatusesAndKindBetween(
                 sourceAccount.getId(),
                 TransferStatus.COMPLETED,
+                TransferStatus.REVERSED,
+                TransferKind.STANDARD,
                 dayStart,
                 nextDayStart
         );
@@ -88,9 +92,11 @@ public class RiskEvaluationService {
         }
 
         Instant windowStart = now.minusSeconds((long) velocityWindowMinutes * 60);
-        long transfersInWindow = transferRepository.countBySourceAccountIdAndStatusAndProcessedAtGreaterThanEqual(
+        long transfersInWindow = transferRepository.countBySourceAccountIdAndTerminalStatusesAndKindAndProcessedAtGreaterThanEqual(
                 sourceAccount.getId(),
                 TransferStatus.COMPLETED,
+                TransferStatus.REVERSED,
+                TransferKind.STANDARD,
                 windowStart
         );
         if (transfersInWindow >= velocityMaxTransfers) {
@@ -159,4 +165,3 @@ public class RiskEvaluationService {
         };
     }
 }
-

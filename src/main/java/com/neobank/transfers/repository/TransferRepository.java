@@ -1,8 +1,11 @@
 package com.neobank.transfers.repository;
 
 import com.neobank.transfers.domain.TransferEntity;
+import com.neobank.transfers.domain.TransferKind;
 import com.neobank.transfers.domain.TransferStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.math.BigDecimal;
@@ -17,24 +20,45 @@ public interface TransferRepository extends JpaRepository<TransferEntity, UUID> 
 
     List<TransferEntity> findByInitiatedByUserIdOrderByCreatedAtDesc(UUID initiatedByUserId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from TransferEntity t where t.id = :id")
+    Optional<TransferEntity> findByIdForUpdate(UUID id);
+
+    boolean existsByOriginalTransferIdAndKind(UUID originalTransferId, TransferKind kind);
+
+    Optional<TransferEntity> findByOriginalTransferIdAndKind(UUID originalTransferId, TransferKind kind);
+
     @Query("""
             select coalesce(sum(t.amount), 0)
             from TransferEntity t
             where t.sourceAccountId = :sourceAccountId
-              and t.status = :status
+              and (t.status = :completedStatus or t.status = :reversedStatus)
+              and t.kind = :kind
               and t.processedAt >= :from
               and t.processedAt < :to
             """)
-    BigDecimal sumOutgoingAmountBySourceAndStatusBetween(
+    BigDecimal sumOutgoingAmountBySourceAndTerminalStatusesAndKindBetween(
             UUID sourceAccountId,
-            TransferStatus status,
+            TransferStatus completedStatus,
+            TransferStatus reversedStatus,
+            TransferKind kind,
             Instant from,
             Instant to
     );
 
-    long countBySourceAccountIdAndStatusAndProcessedAtGreaterThanEqual(
+    @Query("""
+            select count(t)
+            from TransferEntity t
+            where t.sourceAccountId = :sourceAccountId
+              and (t.status = :completedStatus or t.status = :reversedStatus)
+              and t.kind = :kind
+              and t.processedAt >= :processedAt
+            """)
+    long countBySourceAccountIdAndTerminalStatusesAndKindAndProcessedAtGreaterThanEqual(
             UUID sourceAccountId,
-            TransferStatus status,
+            TransferStatus completedStatus,
+            TransferStatus reversedStatus,
+            TransferKind kind,
             Instant processedAt
     );
 }

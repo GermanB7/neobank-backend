@@ -17,6 +17,7 @@ import com.neobank.transfers.api.dto.CreateTransferRequest;
 import com.neobank.transfers.api.dto.TransferResponse;
 import com.neobank.transfers.api.dto.TransferSummaryResponse;
 import com.neobank.transfers.domain.TransferEntity;
+import com.neobank.transfers.domain.TransferKind;
 import com.neobank.transfers.domain.TransferStatus;
 import com.neobank.transfers.domain.events.TransferCompletedEvent;
 import com.neobank.transfers.domain.events.TransferRejectedByRiskEvent;
@@ -164,6 +165,8 @@ public class TransferService {
             transfer.setAmount(normalizedAmount);
             transfer.setCurrency(sourceAccount.getCurrency());
             transfer.setStatus(TransferStatus.PENDING);
+            transfer.setKind(TransferKind.STANDARD);
+            transfer.setOriginalTransferId(null);
             transfer.setReference(normalizedReference);
             transfer.setInitiatedByUserId(initiatedByUserId);
             transfer.setIdempotencyKey(normalizedIdempotencyKey);
@@ -370,6 +373,8 @@ public class TransferService {
                 transfer.getAmount(),
                 transfer.getCurrency(),
                 transfer.getStatus(),
+                transfer.getKind(),
+                transfer.getOriginalTransferId(),
                 transfer.getReference(),
                 transfer.getInitiatedByUserId(),
                 transfer.getIdempotencyKey(),
@@ -386,6 +391,8 @@ public class TransferService {
                 transfer.getAmount(),
                 transfer.getCurrency(),
                 transfer.getStatus(),
+                transfer.getKind(),
+                transfer.getOriginalTransferId(),
                 transfer.getCreatedAt(),
                 transfer.getProcessedAt()
         );

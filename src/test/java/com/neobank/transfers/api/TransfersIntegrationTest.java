@@ -19,7 +19,9 @@ import com.neobank.ledger.domain.LedgerTransactionEntity;
 import com.neobank.ledger.repository.LedgerEntryRepository;
 import com.neobank.ledger.repository.LedgerTransactionRepository;
 import com.neobank.transfers.api.dto.CreateTransferRequest;
+import com.neobank.transfers.api.dto.ReverseTransferRequest;
 import com.neobank.transfers.domain.TransferEntity;
+import com.neobank.transfers.domain.TransferKind;
 import com.neobank.transfers.domain.TransferStatus;
 import com.neobank.transfers.repository.TransferRepository;
 import com.neobank.risk.domain.RiskDecision;
@@ -41,6 +43,8 @@ import org.springframework.web.context.WebApplicationContext;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -737,6 +741,115 @@ class TransfersIntegrationTest {
                 .andExpect(jsonPath("$.transferId").value(transferId.toString()));
     }
 
+    @Test
+    void adminCanReverseEligibleCompletedTransfer() throws Exception {
+        UUID source = createAccountAndGetId(ownerToken, "USD");
+        UUID target = createAccountAndGetId(otherUserToken, "USD");
+        setBalance(source, new BigDecimal("150.00"));
+        setBalance(target, new BigDecimal("20.00"));
+
+        UUID originalTransferId = createTransferAndGetId(ownerToken, source, target, new BigDecimal("50.00"), "idem-reversal-ok-1");
+
+        MvcResult reverseResult = mockMvc.perform(post("/transfers/{transferId}/reverse", originalTransferId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("duplicate payment"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.originalTransferId").value(originalTransferId.toString()))
+                .andExpect(jsonPath("$.kind").value("REVERSAL"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andReturn();
+
+        UUID reversalTransferId = UUID.fromString(objectMapper.readTree(reverseResult.getResponse().getContentAsString())
+                .get("reversalTransferId")
+                .asText());
+
+        TransferEntity originalAfter = transferRepository.findById(originalTransferId).orElseThrow();
+        TransferEntity reversal = transferRepository.findById(reversalTransferId).orElseThrow();
+
+        assertEquals(TransferStatus.REVERSED, originalAfter.getStatus());
+        assertEquals(TransferKind.REVERSAL, reversal.getKind());
+        assertEquals(originalTransferId, reversal.getOriginalTransferId());
+        assertEquals(target, reversal.getSourceAccountId());
+        assertEquals(source, reversal.getTargetAccountId());
+
+        AccountEntity sourceAfter = accountRepository.findById(source).orElseThrow();
+        AccountEntity targetAfter = accountRepository.findById(target).orElseThrow();
+        assertEquals(0, sourceAfter.getBalance().compareTo(new BigDecimal("150.00")));
+        assertEquals(0, targetAfter.getBalance().compareTo(new BigDecimal("20.00")));
+
+        assertTrue(ledgerTransactionRepository.findByRelatedTransferId(originalTransferId).isPresent());
+        assertTrue(ledgerTransactionRepository.findByRelatedTransferId(reversalTransferId).isPresent());
+
+        boolean hasRequestedAudit = auditEventRepository.findAll().stream()
+                .anyMatch(event -> "TRANSFER_REVERSAL_REQUESTED".equals(event.getEventType())
+                        && originalTransferId.toString().equals(event.getResourceId()));
+        boolean hasReversedAudit = auditEventRepository.findAll().stream()
+                .anyMatch(event -> "TRANSFER_REVERSED".equals(event.getEventType())
+                        && reversalTransferId.toString().equals(event.getResourceId()));
+        assertTrue(hasRequestedAudit);
+        assertTrue(hasReversedAudit);
+    }
+
+    @Test
+    void nonAdminCannotReverseTransfer() throws Exception {
+        UUID source = createAccountAndGetId(ownerToken, "USD");
+        UUID target = createAccountAndGetId(otherUserToken, "USD");
+        setBalance(source, new BigDecimal("80.00"));
+
+        UUID originalTransferId = createTransferAndGetId(ownerToken, source, target, new BigDecimal("10.00"), "idem-reversal-forbidden-1");
+
+        mockMvc.perform(post("/transfers/{transferId}/reverse", originalTransferId)
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("not allowed"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void cannotReverseTwice() throws Exception {
+        UUID source = createAccountAndGetId(ownerToken, "USD");
+        UUID target = createAccountAndGetId(otherUserToken, "USD");
+        setBalance(source, new BigDecimal("200.00"));
+
+        UUID originalTransferId = createTransferAndGetId(ownerToken, source, target, new BigDecimal("30.00"), "idem-reversal-double-1");
+
+        mockMvc.perform(post("/transfers/{transferId}/reverse", originalTransferId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("first reversal"))))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/transfers/{transferId}/reverse", originalTransferId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("second reversal"))))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void reversalFailsWhenCompensatingSourceHasInsufficientFunds() throws Exception {
+        UUID source = createAccountAndGetId(ownerToken, "USD");
+        UUID target = createAccountAndGetId(otherUserToken, "USD");
+        setBalance(source, new BigDecimal("100.00"));
+
+        UUID originalTransferId = createTransferAndGetId(ownerToken, source, target, new BigDecimal("40.00"), "idem-reversal-funds-1");
+
+        setBalance(target, new BigDecimal("10.00"));
+
+        mockMvc.perform(post("/transfers/{transferId}/reverse", originalTransferId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("insufficient funds case"))))
+                .andExpect(status().isConflict());
+
+        assertEquals(1, transferRepository.count());
+        AccountEntity sourceAfter = accountRepository.findById(source).orElseThrow();
+        AccountEntity targetAfter = accountRepository.findById(target).orElseThrow();
+        assertEquals(0, sourceAfter.getBalance().compareTo(new BigDecimal("60.00")));
+        assertEquals(0, targetAfter.getBalance().compareTo(new BigDecimal("10.00")));
+    }
+
     private void ensureRolesSeeded() {
         if (roleRepository.findByName("ROLE_USER").isEmpty()) {
             RoleEntity roleUser = new RoleEntity();
@@ -855,9 +968,15 @@ class TransfersIntegrationTest {
         transfer.setAmount(amount);
         transfer.setCurrency("USD");
         transfer.setStatus(TransferStatus.COMPLETED);
+        transfer.setKind(TransferKind.STANDARD);
+        transfer.setOriginalTransferId(null);
         transfer.setInitiatedByUserId(ownerId);
         transfer.setIdempotencyKey(idempotencyKey);
-        transfer.setProcessedAt(Instant.now().minusSeconds(2 * 3600L));
+        Instant fixedWithinTodayUtc = LocalDate.now(ZoneOffset.UTC)
+                .atStartOfDay()
+                .plusHours(1)
+                .toInstant(ZoneOffset.UTC);
+        transfer.setProcessedAt(fixedWithinTodayUtc);
 
         transferRepository.saveAndFlush(transfer);
     }

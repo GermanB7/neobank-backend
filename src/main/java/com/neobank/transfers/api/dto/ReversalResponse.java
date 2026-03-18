@@ -7,19 +7,17 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-public record TransferResponse(
-        UUID id,
+public record ReversalResponse(
+        UUID originalTransferId,
+        UUID reversalTransferId,
         UUID sourceAccountId,
         UUID targetAccountId,
         BigDecimal amount,
         String currency,
-        TransferStatus status,
         TransferKind kind,
-        UUID originalTransferId,
-        String reference,
-        UUID initiatedByUserId,
-        String idempotencyKey,
-        Instant createdAt,
+        TransferStatus status,
+        String reason,
         Instant processedAt
 ) {
 }
+

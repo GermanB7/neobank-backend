@@ -12,6 +12,7 @@ import com.neobank.audit.repository.AuditEventRepository;
 import com.neobank.ledger.repository.LedgerEntryRepository;
 import com.neobank.ledger.repository.LedgerTransactionRepository;
 import com.neobank.risk.repository.RiskEvaluationRepository;
+import com.neobank.transfers.api.dto.ReverseTransferRequest;
 import com.neobank.transfers.repository.TransferRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.util.Set;
+import java.util.UUID;
 
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -314,5 +316,27 @@ class AuthorizationIntegrationTest {
 
         org.junit.jupiter.api.Assertions.assertTrue(hasSuccess);
         org.junit.jupiter.api.Assertions.assertTrue(hasFailure);
+    }
+
+    @Test
+    void testTransferReversalEndpointAuthorization() throws Exception {
+        UUID unknownTransferId = UUID.randomUUID();
+
+        mockMvc.perform(post("/transfers/{transferId}/reverse", unknownTransferId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("auth test"))))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/transfers/{transferId}/reverse", unknownTransferId)
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("auth test"))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/transfers/{transferId}/reverse", unknownTransferId)
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReverseTransferRequest("auth test"))))
+                .andExpect(status().isNotFound());
     }
 }

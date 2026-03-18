@@ -5,6 +5,7 @@ import com.neobank.audit.service.AuditService;
 import com.neobank.auth.domain.events.UserRegisteredEvent;
 import com.neobank.transfers.domain.events.TransferCompletedEvent;
 import com.neobank.transfers.domain.events.TransferRejectedByRiskEvent;
+import com.neobank.transfers.domain.events.TransferReversedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -118,5 +119,25 @@ public class AuditEventListener {
                 "User registered"
         );
     }
-}
 
+    /**
+     * Records audit event when a transfer is reversed.
+     */
+    @EventListener
+    public void onTransferReversed(TransferReversedEvent event) {
+        log.debug("Handling TransferReversedEvent: {}", event.getEventId());
+
+        auditService.recordEvent(
+                "TRANSFER_REVERSED",
+                event.getInitiatedByUserId(),
+                null,
+                "TRANSFER",
+                event.getReversalTransferId().toString(),
+                "SUCCESS",
+                "Reversal completed: originalTransferId=" + event.getOriginalTransferId() +
+                        " reversalTransferId=" + event.getReversalTransferId() +
+                        " amount=" + event.getAmount() + " " + event.getCurrency() +
+                        " reason=" + event.getReason()
+        );
+    }
+}

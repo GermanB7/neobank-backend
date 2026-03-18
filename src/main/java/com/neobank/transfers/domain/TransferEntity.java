@@ -38,6 +38,13 @@ public class TransferEntity {
     @Column(nullable = false, length = 20)
     private TransferStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private TransferKind kind;
+
+    @Column(name = "original_transfer_id", columnDefinition = "uuid")
+    private UUID originalTransferId;
+
     @Column(name = "transfer_reference", length = 255)
     private String reference;
 
@@ -60,6 +67,9 @@ public class TransferEntity {
         }
         if (status == null) {
             status = TransferStatus.PENDING;
+        }
+        if (kind == null) {
+            kind = TransferKind.STANDARD;
         }
     }
 
@@ -109,6 +119,22 @@ public class TransferEntity {
 
     public void setStatus(TransferStatus status) {
         this.status = status;
+    }
+
+    public TransferKind getKind() {
+        return kind;
+    }
+
+    public void setKind(TransferKind kind) {
+        this.kind = kind;
+    }
+
+    public UUID getOriginalTransferId() {
+        return originalTransferId;
+    }
+
+    public void setOriginalTransferId(UUID originalTransferId) {
+        this.originalTransferId = originalTransferId;
     }
 
     public String getReference() {

@@ -76,7 +76,7 @@ public class AccountService {
                         saved.getId(),
                         saved.getAccountNumber(),
                         ownerId,
-                        saved.getType(),
+                        saved.getType().name(),
                         saved.getCurrency()
                 )
         );

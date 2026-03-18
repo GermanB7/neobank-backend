@@ -6,6 +6,7 @@ import com.neobank.audit.repository.AuditEventRepository;
 import com.neobank.auth.domain.events.UserRegisteredEvent;
 import com.neobank.transfers.domain.events.TransferCompletedEvent;
 import com.neobank.transfers.domain.events.TransferRejectedByRiskEvent;
+import com.neobank.transfers.domain.events.TransferReversedEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,6 +21,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for audit event listener.
@@ -248,5 +250,46 @@ class AuditEventListenerTest {
         assertEquals(1, accountCreatedCount);
         assertEquals(1, transferCompletedCount);
     }
-}
 
+    /**
+     * Test that TransferReversedEvent is captured and an audit event is recorded.
+     */
+    @Test
+    @Transactional
+    void testTransferReversedEventTriggersAudit() {
+        auditEventRepository.deleteAll();
+
+        UUID originalTransferId = UUID.randomUUID();
+        UUID reversalTransferId = UUID.randomUUID();
+        UUID initiatedByUserId = UUID.randomUUID();
+        UUID sourceAccountId = UUID.randomUUID();
+        UUID targetAccountId = UUID.randomUUID();
+        BigDecimal amount = new BigDecimal("100.00");
+
+        TransferReversedEvent event = new TransferReversedEvent(
+                originalTransferId,
+                reversalTransferId,
+                initiatedByUserId,
+                sourceAccountId,
+                targetAccountId,
+                amount,
+                "USD",
+                "duplicate payment",
+                Instant.now()
+        );
+
+        applicationEventPublisher.publishEvent(event);
+
+        List<AuditEventEntity> auditEvents = auditEventRepository.findAll();
+        assertEquals(1, auditEvents.size(), "Should have created one audit event");
+
+        AuditEventEntity auditEvent = auditEvents.get(0);
+        assertEquals("TRANSFER_REVERSED", auditEvent.getEventType());
+        assertEquals(initiatedByUserId, auditEvent.getActorUserId());
+        assertEquals("TRANSFER", auditEvent.getResourceType());
+        assertEquals(reversalTransferId.toString(), auditEvent.getResourceId());
+        assertEquals("SUCCESS", auditEvent.getOutcome());
+        assertNotNull(auditEvent.getDetails());
+        assertTrue(auditEvent.getDetails().contains(originalTransferId.toString()));
+    }
+}

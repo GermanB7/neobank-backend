@@ -4,6 +4,7 @@ import com.neobank.accounts.domain.events.AccountCreatedEvent;
 import com.neobank.auth.domain.events.UserRegisteredEvent;
 import com.neobank.transfers.domain.events.TransferCompletedEvent;
 import com.neobank.transfers.domain.events.TransferRejectedByRiskEvent;
+import com.neobank.transfers.domain.events.TransferReversedEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -151,6 +152,48 @@ class DomainEventPublishingTest {
         assertEquals(initiatedByUserId, event.getInitiatedByUserId());
         assertEquals(amount, event.getAmount());
         assertEquals(reason, event.getReason());
+        assertNotNull(event.getEventId());
+        assertNotNull(event.getOccurredAt());
+    }
+
+    /**
+     * Test that TransferReversedEvent can be published and contains correct data.
+     */
+    @Test
+    void testTransferReversedEventPublication() {
+        UUID originalTransferId = UUID.randomUUID();
+        UUID reversalTransferId = UUID.randomUUID();
+        UUID initiatedByUserId = UUID.randomUUID();
+        UUID sourceAccountId = UUID.randomUUID();
+        UUID targetAccountId = UUID.randomUUID();
+        BigDecimal amount = new BigDecimal("42.00");
+        String currency = "USD";
+        String reason = "duplicate payment";
+        Instant processedAt = Instant.now();
+
+        TransferReversedEvent event = new TransferReversedEvent(
+                originalTransferId,
+                reversalTransferId,
+                initiatedByUserId,
+                sourceAccountId,
+                targetAccountId,
+                amount,
+                currency,
+                reason,
+                processedAt
+        );
+
+        // Verify event content
+        assertEquals("TransferReversed", event.getEventType());
+        assertEquals(originalTransferId, event.getOriginalTransferId());
+        assertEquals(reversalTransferId, event.getReversalTransferId());
+        assertEquals(initiatedByUserId, event.getInitiatedByUserId());
+        assertEquals(sourceAccountId, event.getSourceAccountId());
+        assertEquals(targetAccountId, event.getTargetAccountId());
+        assertEquals(amount, event.getAmount());
+        assertEquals(currency, event.getCurrency());
+        assertEquals(reason, event.getReason());
+        assertEquals(processedAt, event.getProcessedAt());
         assertNotNull(event.getEventId());
         assertNotNull(event.getOccurredAt());
     }
