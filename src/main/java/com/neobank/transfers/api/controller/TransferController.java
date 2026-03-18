@@ -5,6 +5,7 @@ import com.neobank.transfers.api.dto.CreateTransferRequest;
 import com.neobank.transfers.api.dto.TransferResponse;
 import com.neobank.transfers.api.dto.TransferSummaryResponse;
 import com.neobank.transfers.service.TransferService;
+import com.neobank.shared.ratelimit.RateLimit;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,6 +32,7 @@ public class TransferController {
     }
 
     @PostMapping
+    @RateLimit(maxRequests = 10, windowSeconds = 3600, strategy = "USER", message = "Too many transfer requests. Maximum 10 transfers per hour.")
     public ResponseEntity<TransferResponse> createTransfer(
             @Valid @RequestBody CreateTransferRequest request,
             Authentication authentication

@@ -11,6 +11,8 @@ import com.neobank.auth.repository.RoleRepository;
 import com.neobank.auth.repository.UserRepository;
 import com.neobank.auth.security.JwtService;
 import com.neobank.shared.metrics.ObservabilityMetrics;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -55,6 +58,7 @@ public class AuthService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "user_by_email", key = "#req.email().trim().toLowerCase()")
     public AuthResponse register(RegisterRequest req) {
         String email = req.email().trim().toLowerCase(Locale.ROOT);
 
@@ -149,4 +153,20 @@ public class AuthService {
                 user.isEnabled()
         );
     }
+
+    /**
+     * Cached user lookup by email.
+     * Results are cached for 30 minutes.
+     * Cache is invalidated on user registration.
+     *
+     * This is safe to cache because:
+     * - Email is the stable, read-only user identifier
+     * - User modifications are not frequent in this workflow
+     * - Cache invalidation is explicit on registration
+     */
+    @Cacheable(cacheNames = "user_by_email", key = "#email.toLowerCase()")
+    public Optional<UserEntity> getUserByEmailCached(String email) {
+        return userRepository.findByEmailIgnoreCase(email);
+    }
 }
+

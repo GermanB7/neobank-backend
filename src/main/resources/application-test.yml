@@ -18,6 +18,14 @@ spring:
       host: localhost
       port: 6379
 
+  cache:
+    type: redis
+    redis:
+      time-to-live: 1800000  # 30 minutes in milliseconds
+    cache-names:
+      - user_by_email
+      - role_by_name
+
 logging:
   level:
     org.flywaydb: INFO
@@ -53,3 +61,8 @@ risk:
     velocity-max-transfers: 2
     new-account-max-age-hours: 24
     new-account-high-value-threshold: 700.00
+
+neobank:
+  ratelimit:
+    enabled: false  # Disable rate limiting in tests to avoid interference
+

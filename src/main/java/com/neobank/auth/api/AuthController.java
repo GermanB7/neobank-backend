@@ -5,6 +5,7 @@ import com.neobank.auth.api.dto.LoginRequest;
 import com.neobank.auth.api.dto.RegisterRequest;
 import com.neobank.auth.api.dto.UserProfileResponse;
 import com.neobank.auth.service.AuthService;
+import com.neobank.shared.ratelimit.RateLimit;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +28,7 @@ public class AuthController {
     }
 
     @PostMapping("/register")
+    @RateLimit(maxRequests = 5, windowSeconds = 300, strategy = "IP", message = "Too many registration attempts. Please try again in 5 minutes.")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         try {
             AuthResponse response = authService.register(request);
@@ -37,6 +39,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @RateLimit(maxRequests = 5, windowSeconds = 300, strategy = "IP", message = "Too many login attempts. Please try again in 5 minutes.")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(response);
