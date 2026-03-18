@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SPRING_PROFILES_ACTIVE: test
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/neobank
+      SPRING_DATASOURCE_USERNAME: neobank
+      SPRING_DATASOURCE_PASSWORD: neobank
+      SPRING_DATA_REDIS_HOST: localhost
+      SPRING_DATA_REDIS_PORT: 6379
+      NEOBANK_KAFKA_ENABLED: "false"
+      NEOBANK_KAFKA_PUBLISH_TO_KAFKA: "false"
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: neobank
+          POSTGRES_USER: neobank
+          POSTGRES_PASSWORD: neobank
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U neobank -d neobank"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Build and run tests
+        run: ./mvnw -B -ntp clean verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/**
+            target/failsafe-reports/**
+
+      - name: Upload packaged JAR
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neobank-jar
+          path: target/*.jar
+
+  docker-build:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build --file Dockerfile --tag neobank:ci .
+
