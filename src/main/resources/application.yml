@@ -66,3 +66,12 @@ risk:
 neobank:
   ratelimit:
     enabled: true  # Enable rate limiting in production
+
+outbox:
+  enabled: true
+  processor:
+    interval: 5000              # milliseconds between processing cycles
+    initial-delay: 1000         # milliseconds before first processing starts
+    batch-size: 100             # number of events to process per cycle
+    max-attempts: 3             # maximum retry attempts before marking FAILED
+    processing-timeout-ms: 300000  # 5 minutes - timeout for stuck events in PROCESSING

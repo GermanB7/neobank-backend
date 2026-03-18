@@ -5,7 +5,6 @@ import com.neobank.shared.domain.DomainEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.stereotype.Component;
 
 /**
  * Spring-based implementation of DomainEventPublisher.
@@ -25,12 +24,9 @@ import org.springframework.stereotype.Component;
  * - If a listener throws an exception, it propagates to the publisher
  * - Transaction rollback is possible if a listener fails
  *
- * Future evolution:
- * - Could wrap with outbox pattern by persisting events before publishing
- * - Could support async listeners via @Async on listeners
- * - Could integrate with Kafka by wrapping event dispatch
+ * Note: This is instantiated as a bean via DomainEventPublisherConfiguration,
+ * not as a @Component directly, to allow conditional selection of implementation.
  */
-@Component
 public class SpringDomainEventPublisher implements DomainEventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(SpringDomainEventPublisher.class);
