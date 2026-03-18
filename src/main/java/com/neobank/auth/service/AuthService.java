@@ -3,8 +3,12 @@ package com.neobank.auth.service;
 import com.neobank.audit.service.AuditService;
 import com.neobank.auth.api.dto.AuthResponse;
 import com.neobank.auth.api.dto.LoginRequest;
+import com.neobank.auth.api.dto.LogoutRequest;
+import com.neobank.auth.api.dto.RefreshTokenRequest;
 import com.neobank.auth.api.dto.RegisterRequest;
+import com.neobank.auth.api.dto.SessionResponse;
 import com.neobank.auth.api.dto.UserProfileResponse;
+import com.neobank.auth.domain.RefreshSessionEntity;
 import com.neobank.auth.domain.RoleEntity;
 import com.neobank.auth.domain.UserEntity;
 import com.neobank.auth.domain.events.UserRegisteredEvent;
@@ -22,7 +26,9 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -38,6 +44,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
     private final AuditService auditService;
     private final ObservabilityMetrics observabilityMetrics;
     private final DomainEventPublisher domainEventPublisher;
@@ -48,6 +55,7 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             AuthenticationManager authenticationManager,
             JwtService jwtService,
+            RefreshTokenService refreshTokenService,
             AuditService auditService,
             ObservabilityMetrics observabilityMetrics,
             DomainEventPublisher domainEventPublisher
@@ -57,6 +65,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
         this.auditService = auditService;
         this.observabilityMetrics = observabilityMetrics;
         this.domainEventPublisher = domainEventPublisher;
@@ -82,16 +91,18 @@ public class AuthService {
 
         userRepository.save(user);
 
-        // Publish event for audit and other side effects
-        domainEventPublisher.publishEvent(
-                new UserRegisteredEvent(user.getId(), user.getEmail())
-        );
+        domainEventPublisher.publishEvent(new UserRegisteredEvent(user.getId(), user.getEmail()));
 
         String token = jwtService.generateToken(email);
         return new AuthResponse(token, TOKEN_TYPE, jwtService.getExpirationSeconds());
     }
 
     public AuthResponse login(LoginRequest req) {
+        return login(req, null, null);
+    }
+
+    @Transactional(noRollbackFor = AuthenticationException.class)
+    public AuthResponse login(LoginRequest req, String ipAddress, String deviceInfo) {
         String email = req.email().trim().toLowerCase(Locale.ROOT);
 
         try {
@@ -124,8 +135,94 @@ public class AuthService {
                 "Authentication succeeded"
         );
 
-        String token = jwtService.generateToken(email);
-        return new AuthResponse(token, TOKEN_TYPE, jwtService.getExpirationSeconds());
+        String accessToken = jwtService.generateToken(email);
+        String refreshToken = null;
+        if (user != null) {
+            refreshToken = refreshTokenService.issue(user, ipAddress, deviceInfo).rawToken();
+        }
+
+        return new AuthResponse(accessToken, refreshToken, TOKEN_TYPE, jwtService.getExpirationSeconds());
+    }
+
+    @Transactional(noRollbackFor = ResponseStatusException.class)
+    public AuthResponse refresh(RefreshTokenRequest request, String ipAddress, String deviceInfo) {
+        try {
+            RefreshTokenService.RotatedRefreshToken rotated =
+                    refreshTokenService.rotate(request.refreshToken(), ipAddress, deviceInfo);
+            String email = rotated.user().getEmail();
+            String accessToken = jwtService.generateToken(email);
+
+            auditService.recordEvent(
+                    "REFRESH_SUCCESS",
+                    rotated.user().getId(),
+                    email,
+                    "AUTH",
+                    null,
+                    "SUCCESS",
+                    "Refresh token rotated"
+            );
+
+            return new AuthResponse(accessToken, rotated.rawToken(), TOKEN_TYPE, jwtService.getExpirationSeconds());
+        } catch (ResponseStatusException ex) {
+            auditService.recordEvent(
+                    "REFRESH_REJECTED",
+                    null,
+                    null,
+                    "AUTH",
+                    null,
+                    "FAILURE",
+                    ex.getReason()
+            );
+            throw ex;
+        }
+    }
+
+    @Transactional
+    public void logout(LogoutRequest request, Authentication authentication) {
+        boolean revoked = refreshTokenService.revoke(request.refreshToken());
+
+        String actorEmail = authentication != null ? authentication.getName() : null;
+        UserEntity actor = actorEmail != null ? userRepository.findByEmailIgnoreCase(actorEmail).orElse(null) : null;
+
+        auditService.recordEvent(
+                "LOGOUT",
+                actor != null ? actor.getId() : null,
+                actorEmail,
+                "AUTH",
+                null,
+                revoked ? "SUCCESS" : "FAILURE",
+                revoked ? "Refresh session revoked" : "Refresh token not found or already revoked"
+        );
+    }
+
+    @Transactional
+    public int logoutAll(Authentication authentication) {
+        String email = authentication.getName();
+        UserEntity user = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found: " + email));
+
+        int revokedSessions = refreshTokenService.revokeAllForUser(user.getId());
+        auditService.recordEvent(
+                "LOGOUT_ALL",
+                user.getId(),
+                email,
+                "AUTH",
+                null,
+                "SUCCESS",
+                "Revoked sessions=" + revokedSessions
+        );
+        return revokedSessions;
+    }
+
+    @Transactional(readOnly = true)
+    public List<SessionResponse> listSessions(Authentication authentication) {
+        String email = authentication.getName();
+        UserEntity user = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found: " + email));
+
+        return refreshTokenService.listActiveSessions(user.getId()).stream()
+                .map(this::toSessionResponse)
+                .toList();
     }
 
     /**
@@ -167,6 +264,17 @@ public class AuthService {
     @Cacheable(cacheNames = "user_by_email", key = "#email.toLowerCase()")
     public Optional<UserEntity> getUserByEmailCached(String email) {
         return userRepository.findByEmailIgnoreCase(email);
+    }
+
+    private SessionResponse toSessionResponse(RefreshSessionEntity session) {
+        return new SessionResponse(
+                session.getId(),
+                session.getCreatedAt(),
+                session.getLastUsedAt(),
+                session.getExpiresAt(),
+                session.getDeviceInfo(),
+                session.getIpAddress()
+        );
     }
 }
 

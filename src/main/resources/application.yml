@@ -50,6 +50,8 @@ security:
   jwt:
     issuer: neobank
     access-token-ttl-seconds: 900
+    refresh-token-ttl-seconds: 1209600
+    refresh-token-pepper: CHANGE_ME_TO_A_LONG_RANDOM_REFRESH_PEPPER_64_CHARACTERS_MINIMUM
     secret: CHANGE_ME_TO_A_LONG_RANDOM_SECRET_64_CHARACTERS_MINIMUM
 
 risk:
@@ -64,4 +66,3 @@ risk:
 neobank:
   ratelimit:
     enabled: true  # Enable rate limiting in production
-

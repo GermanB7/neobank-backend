@@ -47,7 +47,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         String token = header.substring(7);
 
-        if (!jwtService.isValid(token) || tokenRevocationService.isRevoked(token)) {
+        if (!jwtService.isValid(token)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String jti = jwtService.extractJti(token);
+        if (jti != null && tokenRevocationService.isRevoked(jti)) {
             filterChain.doFilter(request, response);
             return;
         }

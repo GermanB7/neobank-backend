@@ -51,6 +51,8 @@ security:
   jwt:
     issuer: neobank
     access-token-ttl-seconds: 900
+    refresh-token-ttl-seconds: 3600
+    refresh-token-pepper: TEST_REFRESH_TOKEN_PEPPER_64_CHARACTERS_LONG_0123456789ABCDEF
     secret: TEST_SECRET_KEY_MINIMUM_64_CHARACTERS_LONG_0123456789ABCDEF
 
 risk:
@@ -65,4 +67,3 @@ risk:
 neobank:
   ratelimit:
     enabled: false  # Disable rate limiting in tests to avoid interference
-

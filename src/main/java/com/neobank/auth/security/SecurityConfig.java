@@ -49,10 +49,11 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // Public authentication endpoints
-                        .requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/auth/register", "/auth/login").denyAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login", "/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/auth/register", "/auth/login", "/auth/refresh").denyAll()
                         // Authenticated endpoints
-                        .requestMatchers(HttpMethod.GET, "/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/auth/me", "/auth/sessions").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/auth/logout", "/auth/logout-all").authenticated()
                         // Admin-only endpoints
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .requestMatchers("/reconciliation/**").hasRole("ADMIN")

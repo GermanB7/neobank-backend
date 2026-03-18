@@ -1,10 +1,12 @@
 package com.neobank.auth.api;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neobank.auth.api.dto.LoginRequest;
 import com.neobank.auth.api.dto.RegisterRequest;
 import com.neobank.auth.domain.RoleEntity;
 import com.neobank.auth.domain.UserEntity;
+import com.neobank.auth.repository.RefreshSessionRepository;
 import com.neobank.auth.repository.RoleRepository;
 import com.neobank.auth.repository.UserRepository;
 import com.neobank.accounts.repository.AccountRepository;
@@ -80,7 +82,11 @@ class AuthorizationIntegrationTest {
     @Autowired
     private RiskEvaluationRepository riskEvaluationRepository;
 
+    @Autowired
+    private RefreshSessionRepository refreshSessionRepository;
+
     private String userToken;
+    private String userRefreshToken;
     private String adminToken;
 
     @BeforeEach
@@ -96,19 +102,28 @@ class AuthorizationIntegrationTest {
         transferRepository.deleteAll();
         accountRepository.deleteAll();
         auditEventRepository.deleteAll();
+        refreshSessionRepository.deleteAll();
         userRepository.deleteAll();
         ensureRolesSeeded();
 
-        // Register and get token for a regular user
+        // Register user first
         RegisterRequest userRequest = new RegisterRequest("user@neobank.com", "password123");
-        MvcResult userRegisterResult = mockMvc.perform(post("/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(userRequest)))
-                .andExpect(status().isCreated())
+        mockMvc.perform(post("/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(userRequest)))
+                .andExpect(status().isCreated());
+
+        // Login and keep access + refresh tokens for auth hardening tests
+        MvcResult userLoginResult = mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("user@neobank.com", "password123"))))
+                .andExpect(status().isOk())
                 .andReturn();
 
-        String userResponse = userRegisterResult.getResponse().getContentAsString();
-        userToken = objectMapper.readTree(userResponse).get("accessToken").asText();
+        String userResponse = userLoginResult.getResponse().getContentAsString();
+        JsonNode userTokens = objectMapper.readTree(userResponse);
+        userToken = userTokens.get("accessToken").asText();
+        userRefreshToken = userTokens.get("refreshToken").asText();
 
         // Create admin user manually
         RoleEntity adminRole = roleRepository.findByName("ROLE_ADMIN")
@@ -360,6 +375,87 @@ class AuthorizationIntegrationTest {
 
         mockMvc.perform(get("/reconciliation/reports")
                         .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testLoginReturnsAccessAndRefreshTokenAndPersistsSession() throws Exception {
+        MvcResult result = mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("user@neobank.com", "password123"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn();
+
+        String refreshToken = objectMapper.readTree(result.getResponse().getContentAsString()).get("refreshToken").asText();
+        org.junit.jupiter.api.Assertions.assertNotNull(refreshToken);
+        org.junit.jupiter.api.Assertions.assertFalse(refreshToken.isBlank());
+        org.junit.jupiter.api.Assertions.assertTrue(refreshSessionRepository.count() >= 1);
+    }
+
+    @Test
+    void testRefreshRotatesTokenAndRejectsOldToken() throws Exception {
+        String payload = "{\"refreshToken\":\"" + userRefreshToken + "\"}";
+
+        MvcResult refreshResult = mockMvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andReturn();
+
+        String rotatedRefresh = objectMapper.readTree(refreshResult.getResponse().getContentAsString()).get("refreshToken").asText();
+        org.junit.jupiter.api.Assertions.assertNotEquals(userRefreshToken, rotatedRefresh);
+
+        mockMvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testLogoutRevokesRefreshToken() throws Exception {
+        String logoutPayload = "{\"refreshToken\":\"" + userRefreshToken + "\"}";
+
+        mockMvc.perform(post("/auth/logout")
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(logoutPayload))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(logoutPayload))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testLogoutAllRevokesAllUserSessions() throws Exception {
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("user@neobank.com", "password123"))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/auth/logout-all")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isNoContent());
+
+        String refreshPayload = "{\"refreshToken\":\"" + userRefreshToken + "\"}";
+        mockMvc.perform(post("/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshPayload))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testSessionsEndpointRequiresAuthenticationAndReturnsCurrentUserSessions() throws Exception {
+        mockMvc.perform(get("/auth/sessions"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/auth/sessions")
+                        .header("Authorization", "Bearer " + userToken))
                 .andExpect(status().isOk());
     }
 }
