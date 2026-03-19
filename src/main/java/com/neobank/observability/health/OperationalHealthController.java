@@ -1,74 +1,99 @@
 package com.neobank.observability.health;
 
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthComponent;
-import org.springframework.boot.actuate.health.HealthEndpoint;
-import org.springframework.boot.actuate.health.Status;
-import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
+import javax.sql.DataSource;
+import java.io.File;
+import java.sql.Connection;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * Operational health summary for Sprint 18.
- * Provides quick status check for deployment gates and incident triage.
+ * Uses lightweight direct checks so it remains compatible with Spring Boot 4 package moves.
  */
 @RestController
 @RequestMapping("/actuator/health-summary")
 public class OperationalHealthController {
 
-    private final HealthEndpoint healthEndpoint;
+    private static final String STATUS_UP = "UP";
+    private static final String STATUS_DOWN = "DOWN";
+    private static final String STATUS_DEGRADED = "DEGRADED";
 
-    public OperationalHealthController(HealthEndpoint healthEndpoint) {
-        this.healthEndpoint = healthEndpoint;
+    private final DataSource dataSource;
+    private final ObjectProvider<RedisConnectionFactory> redisConnectionFactoryProvider;
+
+    public OperationalHealthController(
+            DataSource dataSource,
+            ObjectProvider<RedisConnectionFactory> redisConnectionFactoryProvider
+    ) {
+        this.dataSource = dataSource;
+        this.redisConnectionFactoryProvider = redisConnectionFactoryProvider;
     }
 
-    /**
-     * Quick health summary for ops teams.
-     * Returns critical dependency status + app readiness in one call.
-     */
     @GetMapping
     public Map<String, Object> getHealthSummary() {
-        HealthComponent health = healthEndpoint.health();
-        
-        Map<String, Object> summary = new HashMap<>();
-        summary.put("status", health.getStatus().toString());
-        summary.put("components", extractCriticalComponents(health));
-        summary.put("timestamp", System.currentTimeMillis());
-        
+        Map<String, String> components = new LinkedHashMap<>();
+
+        boolean dbUp = isDatabaseUp();
+        boolean redisUp = isRedisUp();
+        boolean diskUp = isDiskSpaceHealthy();
+
+        components.put("db", dbUp ? STATUS_UP : STATUS_DOWN);
+        components.put("redis", redisUp ? STATUS_UP : STATUS_DOWN);
+        components.put("diskSpace", diskUp ? STATUS_UP : STATUS_DOWN);
+        components.put("ping", STATUS_UP);
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("status", deriveStatus(dbUp, redisUp, diskUp));
+        summary.put("components", components);
+        summary.put("timestamp", Instant.now().toString());
         return summary;
     }
 
-    /**
-     * Extract only critical components for operational awareness.
-     * Include: app status, db, cache, kafka (if enabled)
-     */
-    private Map<String, Object> extractCriticalComponents(HealthComponent health) {
-        Map<String, Object> critical = new HashMap<>();
-        
-        if (health instanceof Health healthDetails) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> components = (Map<String, Object>) healthDetails.getDetails().get("components");
-            
-            if (components != null) {
-                // Include essential components for deployment safety
-                String[] essentialComponents = {
-                    "db", "redis", "diskSpace", "ping"
-                };
-                
-                for (String component : essentialComponents) {
-                    if (components.containsKey(component)) {
-                        HealthComponent comp = (HealthComponent) components.get(component);
-                        critical.put(component, comp.getStatus().toString());
-                    }
-                }
-            }
+    private boolean isDatabaseUp() {
+        try (Connection connection = dataSource.getConnection()) {
+            return connection.isValid(2);
+        } catch (Exception ignored) {
+            return false;
         }
-        
-        return critical;
+    }
+
+    private boolean isRedisUp() {
+        RedisConnectionFactory factory = redisConnectionFactoryProvider.getIfAvailable();
+        if (factory == null) {
+            return false;
+        }
+
+        try (RedisConnection connection = factory.getConnection()) {
+            String ping = connection.ping();
+            return ping != null && !ping.isBlank();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isDiskSpaceHealthy() {
+        try {
+            return new File(".").getUsableSpace() > 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String deriveStatus(boolean dbUp, boolean redisUp, boolean diskUp) {
+        if (dbUp && redisUp && diskUp) {
+            return STATUS_UP;
+        }
+        if (dbUp) {
+            return STATUS_DEGRADED;
+        }
+        return STATUS_DOWN;
     }
 }
-
