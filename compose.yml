@@ -1,30 +1,68 @@
+# ============================================================================
+# Neobank Backend - Docker Compose Stack
+#
+# Services:
+#   - neobank-app:    Spring Boot application (port 8080)
+#   - postgres:       PostgreSQL database (port 5432)
+#   - redis:          Redis cache (port 6379)
+#   - zookeeper:      Zookeeper for Kafka (port 2181)
+#   - kafka:          Kafka message broker (port 9092/29092)
+#   - kafka-ui:       Kafka UI dashboard (port 8081)
+#   - prometheus:     Prometheus monitoring (port 9090)
+#   - alertmanager:   Alert routing baseline (port 9093)
+#   - grafana:        Grafana dashboard (port 3000)
+#
+# Configuration:
+#   - Copy .env.example to .env and customize for your environment
+#   - Or export variables before running: docker-compose up
+#
+# Quick Start:
+#   cp .env.example .env
+#   docker-compose up -d
+#   docker-compose logs -f neobank-app
+#
+# ============================================================================
+
 services:
 
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: neobank-postgres
     environment:
-      POSTGRES_DB: neobank
-      POSTGRES_USER: neobank
-      POSTGRES_PASSWORD: neobank
+      POSTGRES_DB: ${DB_NAME:-neobank}
+      POSTGRES_USER: ${DB_USER:-neobank}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-neobank}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U neobank"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-neobank}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - neobank-network
+    restart: unless-stopped
 
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: neobank-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - neobank-network
+    restart: unless-stopped
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -35,6 +73,12 @@ services:
       ZOOKEEPER_INIT_LIMIT: 5
     ports:
       - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    networks:
+      - neobank-network
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -56,11 +100,17 @@ services:
     ports:
       - "9092:9092"
       - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+    networks:
+      - neobank-network
+    restart: unless-stopped
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -74,3 +124,139 @@ services:
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     ports:
       - "8081:8080"
+    networks:
+      - neobank-network
+    restart: unless-stopped
+
+  neobank-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: neobank:latest
+    container_name: neobank-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-neobank}
+      DB_USER: ${DB_USER:-neobank}
+      DB_PASSWORD: ${DB_PASSWORD:-neobank}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      JWT_REFRESH_TOKEN_PEPPER: ${JWT_REFRESH_TOKEN_PEPPER:-dev-pepper-change-in-production}
+      JWT_ISSUER: ${JWT_ISSUER:-neobank}
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+      KAFKA_PUBLISH: ${KAFKA_PUBLISH:-false}
+      RATELIMIT_ENABLED: ${RATELIMIT_ENABLED:-true}
+      OUTBOX_ENABLED: ${OUTBOX_ENABLED:-true}
+      PROMETHEUS_PUBLIC_ENDPOINT_ENABLED: ${PROMETHEUS_PUBLIC_ENDPOINT_ENABLED:-true}
+      SERVER_PORT: ${SERVER_PORT:-8080}
+    ports:
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - neobank-network
+    restart: unless-stopped
+    # Uncomment for debugging
+    # stdin_open: true
+    # tty: true
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: neobank-prometheus
+    profiles:
+      - monitoring
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      neobank-app:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    networks:
+      - neobank-network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: neobank-alertmanager
+    profiles:
+      - monitoring
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - neobank-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: neobank-grafana
+    profiles:
+      - monitoring
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - neobank-network
+    restart: unless-stopped
+
+# Volumes for persistent data
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  zookeeper-data:
+    driver: local
+  zookeeper-logs:
+    driver: local
+  kafka-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+
+# Network for service communication
+networks:
+  neobank-network:
+    driver: bridge

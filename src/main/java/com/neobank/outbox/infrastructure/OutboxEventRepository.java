@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -54,6 +55,11 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, 
      * @return number of pending outbox events
      */
     long countByStatus(OutboxStatus status);
+
+    /**
+     * Returns the oldest PENDING event to estimate outbox backlog age.
+     */
+    Optional<OutboxEventEntity> findFirstByStatusOrderByCreatedAtAsc(OutboxStatus status);
 
     /**
      * Update status and attempt count in a single transaction.

@@ -3,15 +3,20 @@ spring:
     url: jdbc:postgresql://localhost:5432/neobank
     username: neobank
     password: neobank
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
 
   jpa:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+    show-sql: false
 
   flyway:
     enabled: true
     locations: classpath:db/migration
+    clean-disabled: true
 
   data:
     redis:
@@ -21,7 +26,7 @@ spring:
   cache:
     type: redis
     redis:
-      time-to-live: 1800000  # 30 minutes in milliseconds
+      time-to-live: 1800000
     cache-names:
       - user_by_email
       - role_by_name
@@ -29,13 +34,13 @@ spring:
   kafka:
     bootstrap-servers: localhost:29092
     producer:
-      acks: all                     # Wait for all in-sync replicas to acknowledge
+      acks: all
       retries: 3
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
-        linger.ms: 10               # Batch small messages for efficiency
-        compression.type: snappy    # Reduce network bandwidth
+        linger.ms: 10
+        compression.type: snappy
     consumer:
       bootstrap-servers: localhost:29092
       group-id: neobank-outbox-processor
@@ -43,13 +48,15 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: "*"  # Allow deserialization from neobank packages
+        spring.json.trusted.packages: "*"
       enable-auto-commit: true
       auto-commit-interval: 1000
 
 logging:
   level:
     org.flywaydb: INFO
+    org.springframework: INFO
+    com.neobank: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
 
@@ -60,11 +67,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,metrics,prometheus
+        include: health,metrics,prometheus,env,configprops
   endpoint:
     health:
-      show-details: when_authorized
+      show-details: always
       probes:
+        enabled: true
+      group:
+        dependencies:
+          include: db,redis,diskSpace,ping
+  metrics:
+    export:
+      prometheus:
         enabled: true
 
 security:
@@ -72,8 +86,8 @@ security:
     issuer: neobank
     access-token-ttl-seconds: 900
     refresh-token-ttl-seconds: 1209600
-    refresh-token-pepper: ${JWT_REFRESH_TOKEN_PEPPER}
-    secret: ${JWT_SECRET}
+    refresh-token-pepper: ${JWT_REFRESH_TOKEN_PEPPER:dev-refresh-pepper-change-in-production}
+    secret: ${JWT_SECRET:dev-secret-change-in-production}
 
 risk:
   policy:
@@ -86,10 +100,12 @@ risk:
 
 neobank:
   ratelimit:
-    enabled: true  # Enable rate limiting in production
+    enabled: true
+  monitoring:
+    prometheus-public-endpoint-enabled: true
   kafka:
-    enabled: false                # Disable Kafka by default (local dev), enable in prod
-    publish-to-kafka: false       # Whether outbox processor publishes to Kafka
+    enabled: false
+    publish-to-kafka: false
     topics:
       transfer-completed: "neobank.transfer.completed"
       transfer-rejected: "neobank.transfer.rejected"
@@ -100,8 +116,8 @@ neobank:
 outbox:
   enabled: true
   processor:
-    interval: 5000              # milliseconds between processing cycles
-    initial-delay: 1000         # milliseconds before first processing starts
-    batch-size: 100             # number of events to process per cycle
-    max-attempts: 3             # maximum retry attempts before marking FAILED
-    processing-timeout-ms: 300000  # 5 minutes - timeout for stuck events in PROCESSING
+    interval: 5000
+    initial-delay: 1000
+    batch-size: 100
+    max-attempts: 3
+    processing-timeout-ms: 300000

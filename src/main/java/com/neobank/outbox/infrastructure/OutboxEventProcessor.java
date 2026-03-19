@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neobank.shared.domain.DomainEvent;
 import com.neobank.outbox.domain.OutboxStatus;
 import com.neobank.messaging.kafka.dispatcher.KafkaIntegrationEventDispatcher;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +57,12 @@ public class OutboxEventProcessor {
     private final ObjectMapper objectMapper;
     private final Optional<KafkaIntegrationEventDispatcher> kafkaDispatcher;
 
+    private final Counter processedCounter;
+    private final Counter retriedCounter;
+    private final Counter failedCounter;
+    private final Counter recoveredCounter;
+    private final Counter batchErrorCounter;
+
     @Value("${outbox.processor.batch-size:100}")
     private int batchSize;
 
@@ -68,12 +76,19 @@ public class OutboxEventProcessor {
             OutboxEventRepository outboxEventRepository,
             ApplicationEventPublisher applicationEventPublisher,
             ObjectMapper objectMapper,
-            @Autowired(required = false) KafkaIntegrationEventDispatcher kafkaDispatcher
+            @Autowired(required = false) KafkaIntegrationEventDispatcher kafkaDispatcher,
+            MeterRegistry meterRegistry
     ) {
         this.outboxEventRepository = outboxEventRepository;
         this.applicationEventPublisher = applicationEventPublisher;
         this.objectMapper = objectMapper;
         this.kafkaDispatcher = Optional.ofNullable(kafkaDispatcher);
+
+        this.processedCounter = Counter.builder("neobank.outbox.processed").register(meterRegistry);
+        this.retriedCounter = Counter.builder("neobank.outbox.retried").register(meterRegistry);
+        this.failedCounter = Counter.builder("neobank.outbox.failed").register(meterRegistry);
+        this.recoveredCounter = Counter.builder("neobank.outbox.recovered.stuck").register(meterRegistry);
+        this.batchErrorCounter = Counter.builder("neobank.outbox.batch.errors").register(meterRegistry);
     }
 
     /**
@@ -115,6 +130,7 @@ public class OutboxEventProcessor {
             log.info("Batch processing complete, processed {} events", pendingEvents.size());
 
         } catch (Exception ex) {
+            batchErrorCounter.increment();
             log.error("Unexpected error in outbox processor batch", ex);
         }
     }
@@ -167,6 +183,7 @@ public class OutboxEventProcessor {
 
             // Mark as successfully processed
             outboxEventRepository.markAsProcessed(outboxEvent.getId(), Instant.now());
+            processedCounter.increment();
 
             log.info(
                     "Outbox event processed successfully: id={} type={} aggregateId={}",
@@ -211,6 +228,7 @@ public class OutboxEventProcessor {
                     currentAttempt,
                     Instant.now()
             );
+            retriedCounter.increment();
 
             log.info(
                     "Outbox event reverted to PENDING for retry: id={} type={} attempt={}/{}",
@@ -227,6 +245,7 @@ public class OutboxEventProcessor {
                     "Max retries (" + maxAttempts + ") exceeded. Last error: " + errorMessage,
                     Instant.now()
             );
+            failedCounter.increment();
 
             log.error(
                     "Outbox event marked as FAILED (max retries exceeded): id={} type={} error={}",
@@ -264,6 +283,7 @@ public class OutboxEventProcessor {
                         stuckEvent.getAttemptCount(),
                         Instant.now()
                 );
+                recoveredCounter.increment();
 
                 log.info(
                         "Recovered stuck event: id={} type={} attempt={}",

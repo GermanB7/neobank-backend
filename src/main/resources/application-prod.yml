@@ -1,0 +1,153 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:neobank}
+    username: ${DB_USER:neobank}
+    password: ${DB_PASSWORD:change-me-in-production}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate.jdbc.batch_size: 20
+      hibernate.order_inserts: true
+      hibernate.order_updates: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    out-of-order: false
+    clean-disabled: true
+    baseline-on-migrate: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 5000
+      jedis:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 1800000
+    cache-names:
+      - user_by_email
+      - role_by_name
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    producer:
+      acks: all
+      retries: 3
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        linger.ms: 10
+        compression.type: snappy
+        request.timeout.ms: 30000
+    consumer:
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+      group-id: neobank-outbox-processor
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+      enable-auto-commit: true
+      auto-commit-interval: 1000
+      session-timeout: 30000
+
+logging:
+  level:
+    org.flywaydb: INFO
+    org.springframework: WARN
+    org.springframework.security: INFO
+    com.neobank: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
+
+server:
+  port: ${SERVER_PORT:8080}
+  compression:
+    enabled: true
+    min-response-size: 1024
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+      livenessState:
+        enabled: true
+      readinessState:
+        enabled: true
+      group:
+        dependencies:
+          include: db,redis,diskSpace,ping
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 0.1
+
+security:
+  jwt:
+    issuer: ${JWT_ISSUER:neobank}
+    access-token-ttl-seconds: ${JWT_ACCESS_TTL:900}
+    refresh-token-ttl-seconds: ${JWT_REFRESH_TTL:1209600}
+    refresh-token-pepper: ${JWT_REFRESH_TOKEN_PEPPER:must-be-set-in-production}
+    secret: ${JWT_SECRET:must-be-set-in-production}
+
+risk:
+  policy:
+    max-transfer-amount: ${RISK_MAX_TRANSFER:10000.00}
+    daily-outgoing-limit: ${RISK_DAILY_LIMIT:20000.00}
+    velocity-window-minutes: ${RISK_VELOCITY_WINDOW:10}
+    velocity-max-transfers: ${RISK_VELOCITY_MAX:5}
+    new-account-max-age-hours: ${RISK_NEW_ACCOUNT_AGE:24}
+    new-account-high-value-threshold: ${RISK_HIGH_VALUE_THRESHOLD:2500.00}
+
+neobank:
+  ratelimit:
+    enabled: ${RATELIMIT_ENABLED:true}
+  monitoring:
+    prometheus-public-endpoint-enabled: ${PROMETHEUS_PUBLIC_ENDPOINT_ENABLED:false}
+  kafka:
+    enabled: ${KAFKA_ENABLED:false}
+    publish-to-kafka: ${KAFKA_PUBLISH:false}
+    topics:
+      transfer-completed: "${KAFKA_TOPIC_TRANSFER_COMPLETED:neobank.transfer.completed}"
+      transfer-rejected: "${KAFKA_TOPIC_TRANSFER_REJECTED:neobank.transfer.rejected}"
+      transfer-reversed: "${KAFKA_TOPIC_TRANSFER_REVERSED:neobank.transfer.reversed}"
+      account-created: "${KAFKA_TOPIC_ACCOUNT_CREATED:neobank.account.created}"
+      user-registered: "${KAFKA_TOPIC_USER_REGISTERED:neobank.user.registered}"
+
+outbox:
+  enabled: ${OUTBOX_ENABLED:true}
+  processor:
+    interval: ${OUTBOX_PROCESSOR_INTERVAL:5000}
+    initial-delay: ${OUTBOX_PROCESSOR_INITIAL_DELAY:1000}
+    batch-size: ${OUTBOX_PROCESSOR_BATCH_SIZE:100}
+    max-attempts: ${OUTBOX_PROCESSOR_MAX_ATTEMPTS:3}
+    processing-timeout-ms: ${OUTBOX_PROCESSOR_TIMEOUT:300000}

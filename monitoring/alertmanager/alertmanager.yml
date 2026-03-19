@@ -1,0 +1,59 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: ops-console
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  routes:
+    - match:
+        severity: critical
+      receiver: ops-critical
+      group_wait: 10s
+    - match:
+        severity: warning
+      receiver: ops-warning
+
+receivers:
+  # Console/stdout receiver: suitable for learning/local environments
+  - name: ops-console
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook'
+        send_resolved: true
+
+  # Critical severity receiver (can be routed to webhook.site for testing)
+  - name: ops-critical
+    webhook_configs:
+      # Replace this URL with actual webhook.site endpoint or Slack webhook in production
+      - url: 'http://localhost:5001/webhook'
+        send_resolved: true
+
+  # Warning severity receiver
+  - name: ops-warning
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook'
+        send_resolved: true
+
+# Alertmanager Configuration Notes (Sprint 18)
+#
+# This baseline is intended for learning/local environments.
+# For production deployment:
+#
+# 1. Replace webhook URLs with actual incident management services:
+#    - Slack: add webhook_configs with slack_api_url
+#    - PagerDuty: add pagerduty_configs with service_key
+#    - Email: add email_configs with SMTP settings
+#
+# 2. Environment variable substitution:
+#    Set ALERTMANAGER_WEBHOOK_URL (or similar) via compose.yml environment section
+#
+# 3. Severity routing:
+#    - Critical alerts: immediate notification (10s group_wait)
+#    - Warning alerts: batched (30s group_wait, 5m repeat)
+#
+# 4. Testing alerts:
+#    Use ops/monitoring/test-alert.sh (create in Sprint 18)
+#    or manual curl to Prometheus alert injection endpoint
+
