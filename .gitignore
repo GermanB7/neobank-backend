@@ -37,3 +37,23 @@ build/
 .env.local
 .env.*.local
 
+### Generated verification artifacts (portfolio noise) ###
+*.log
+*-exit.txt
+*-tail.log
+ai-*.txt
+ai-*.log
+ci-*.txt
+ci-*.log
+compile-exit.txt
+compile.log
+mvn-*.log
+sprint*-*.txt
+sprint*-*.log
+transfers-test-exit.txt
+transfers-test.log
+accounts-single.log
+boot-dirs.txt
+jar-list.txt
+jar-webmvc.txt
+
